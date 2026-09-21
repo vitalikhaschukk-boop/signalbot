@@ -211,6 +211,14 @@ def test_pocket_parsing() -> None:
     check("volume за замовчуванням 0", candles[1].volume == 3.0)
     check("сміття -> порожньо", _to_candles({"nope": 1}) == [])
 
+    creds = PocketCredentials.parse('42["auth",{"session":"a:4:{x}","isDemo":1,"uid":7,"platform":2}]')
+    check("SSID із цілого кадру 42[auth,...]", creds.session.startswith("a:4:") and creds.uid == 7)
+    check("торгова сесія розпізнається", creds.looks_like_trading_session)
+    check("чатовий токен — не торгова сесія",
+          not PocketCredentials.parse('{"sessionToken":"2aff7e6d","uid":1}').looks_like_trading_session)
+    check("sessionToken теж читається",
+          PocketCredentials.parse('{"sessionToken":"abc","uid":1}').session == "abc")
+
     creds = PocketCredentials.parse('{"session":"abc","isDemo":1,"uid":42,"platform":2}')
     check("SSID з JSON", creds.session == "abc" and creds.uid == 42 and creds.is_demo)
     check("голий SSID", PocketCredentials.parse("plain").session == "plain")

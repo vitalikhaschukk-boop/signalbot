@@ -1,0 +1,7 @@
+.env
+runtime/
+__pycache__/
+*.pyc
+.git/
+.idea/
+scripts/preview.py

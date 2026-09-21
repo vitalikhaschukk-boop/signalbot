@@ -1,0 +1,5 @@
+aiogram>=3.31
+matplotlib>=3.10
+numpy>=2.0
+psycopg[binary]>=3.2
+pocket-option>=0.4.0

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import sys
 import tempfile
 from datetime import timedelta
@@ -110,6 +111,42 @@ def test_db() -> None:
     check("шлях — не DSN", not is_postgres_dsn("runtime/bot.db"))
 
 
+def test_99_and_migration() -> None:
+    print("\n[99 signal + міграція]")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "old.db"
+        # база, створена версією бота ДО появи 99 Signal
+        old = sqlite3.connect(path)
+        old.executescript(
+            """CREATE TABLE users (
+                   user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT,
+                   lang TEXT NOT NULL DEFAULT 'uk', created_at TEXT NOT NULL,
+                   last_seen_at TEXT NOT NULL, requests_used INTEGER NOT NULL DEFAULT 0,
+                   sessions_today INTEGER NOT NULL DEFAULT 0, session_day TEXT,
+                   sub_plan TEXT, sub_until TEXT, banned INTEGER NOT NULL DEFAULT 0);
+               INSERT INTO users (user_id, created_at, last_seen_at)
+                    VALUES (5, '2026-09-01T00:00:00+00:00', '2026-09-01T00:00:00+00:00');"""
+        )
+        old.commit()
+        old.close()
+
+        db = Database(path)
+        user = db.get_user(5)
+        check("стара база читається після міграції", user is not None and user.last_99_day is None)
+        check("старий юзер не втратився", user.user_id == 5)
+
+        check("перший 99 Signal за добу видається", db.consume_99(5))
+        check("другий за ту саму добу — ні", not db.consume_99(5))
+        user = db.get_user(5)
+        check("позначка на сьогодні стоїть", user.has_99_today)
+        check("99 теж рахується у «запитів з'їдено»", user.requests_used == 1)
+
+        db.reset_today(5)
+        check("адмінський ресет знімає і 99", not db.get_user(5).has_99_today)
+        check("після ресету 99 знову доступний", db.consume_99(5))
+        db.close()
+
+
 def test_signals() -> None:
     print("\n[signals]")
     check("ema рахує", abs(ema([1.0] * 10, 5)[-1] - 1.0) < 1e-9)
@@ -186,6 +223,7 @@ def test_pocket_parsing() -> None:
 
 if __name__ == "__main__":
     test_db()
+    test_99_and_migration()
     test_signals()
     test_chart()
     test_i18n()

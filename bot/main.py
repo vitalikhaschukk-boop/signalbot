@@ -30,6 +30,10 @@ log = logging.getLogger("signalbot")
 
 router = Router()
 
+# 99 Signal: один на добу, тому поріг вищий за звичайний (3.0) і скануємо всі активи
+S99_MIN_SCORE = 4.5
+S99_TIMEFRAME = 300
+
 PLAN_DEFAULTS = {
     "plan1": "Standard — 3 сигнали/день",
     "plan1_desc": "• 3 сесії на добу\n• Forex + Crypto OTC\n• підтримка в чаті",
@@ -69,6 +73,23 @@ class App:
 
     def plan(self, key: str) -> str:
         return self.db.get_setting(key, PLAN_DEFAULTS[key])
+
+    def links(self) -> dict[str, str]:
+        """Посилання кнопок: спершу те, що адмін задав у боті, інакше — зі змінних оточення.
+
+        Значення «-» означає «прибрати кнопку», щоб адмін міг це зробити без деплою.
+        """
+        fallbacks = {
+            "channel_url": self.config.channel_url,
+            "trader_url": self.config.trader_url,
+            "pocket_url": self.config.po_ref_url,
+            "training_url": "",
+        }
+        out = {}
+        for key, fallback in fallbacks.items():
+            value = self.db.get_setting(key, fallback).strip()
+            out[key] = "" if value == "-" else value
+        return out
 
 
 app: App | None = None
@@ -113,9 +134,7 @@ async def cmd_start(message: Message) -> None:
         return
     await message.answer(
         profile_block(user, app.config, user.lang),
-        reply_markup=main_menu(
-            user.lang, app.config.channel_url, app.config.trader_url, app.config.po_ref_url
-        ),
+        reply_markup=main_menu(user.lang, app.links()),
     )
 
 
@@ -126,7 +145,7 @@ async def cb_home(call: CallbackQuery) -> None:
     await _replace(
         call,
         profile_block(user, app.config, user.lang),
-        main_menu(user.lang, app.config.channel_url, app.config.trader_url, app.config.po_ref_url),
+        main_menu(user.lang, app.links()),
     )
 
 
@@ -147,7 +166,7 @@ async def cb_set_lang(call: CallbackQuery) -> None:
     await _replace(
         call,
         profile_block(user, app.config, lang),
-        main_menu(lang, app.config.channel_url, app.config.trader_url, app.config.po_ref_url),
+        main_menu(lang, app.links()),
     )
 
 
@@ -201,59 +220,95 @@ async def cb_timeframe(call: CallbackQuery) -> None:
     if not user.sub_active or user.sessions_left(app.config.daily_sessions) <= 0:
         await call.answer(t(user.lang, "sub_required"), show_alert=True)
         return
+    await _deliver_signal(call, user, timeframe=timeframe, premium=False)
 
+
+@router.callback_query(F.data == "menu:99")
+async def cb_99(call: CallbackQuery) -> None:
+    """Один найсильніший сигнал на добу — окремий лічильник, окремий поріг."""
+    assert app is not None and call.from_user is not None
+    user = app.user_or_create(call.from_user)
+    if user.banned:
+        await call.answer(t(user.lang, "banned"), show_alert=True)
+        return
+    if not user.sub_active:
+        await call.answer(t(user.lang, "sub_required"), show_alert=True)
+        return
+    if user.has_99_today:
+        await call.answer(t(user.lang, "s99_used"), show_alert=True)
+        return
+    await _deliver_signal(call, user, timeframe=S99_TIMEFRAME, premium=True)
+
+
+async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int, premium: bool) -> None:
+    """Спільний шлях звичайної сесії і 99 Signal: сканер → пошук → картка.
+
+    Ліміт списується ЛИШЕ коли сигнал реально знайдено.
+    """
+    assert app is not None
     message = call.message
     await call.answer()
     if message is None:
         return
-    await _scanner_animation(message, user.lang)
+    await _scanner_animation(message, user.lang, premium=premium)
 
     try:
-        market, digits = await _load_market(timeframe)
+        market, digits = await _load_market(timeframe, limit=0 if premium else 5)
     except PocketUnavailable as exc:
         log.warning("немає даних: %s", exc)
         await message.edit_text(t(user.lang, "data_error"), reply_markup=back_menu(user.lang))
         return
 
-    best = pick_best(market, digits)
+    best = pick_best(market, digits, min_score=S99_MIN_SCORE if premium else 3.0)
     if best is None:
-        await message.edit_text(t(user.lang, "no_signal"), reply_markup=back_menu(user.lang))
+        key = "s99_none" if premium else "no_signal"
+        await message.edit_text(t(user.lang, key), reply_markup=back_menu(user.lang))
         return
 
     symbol, signal = best
-    if not app.db.consume_session(user.user_id, app.config.daily_sessions):
-        await call.answer(t(user.lang, "no_sessions", limit=app.config.daily_sessions), show_alert=True)
+    if premium:
+        taken = app.db.consume_99(user.user_id)
+        limit_message = t(user.lang, "s99_used")
+    else:
+        taken = app.db.consume_session(user.user_id, app.config.daily_sessions)
+        limit_message = t(user.lang, "no_sessions", limit=app.config.daily_sessions)
+    if not taken:
+        await message.edit_text(limit_message, reply_markup=back_menu(user.lang))
         return
     app.db.log_request(user.user_id, symbol, timeframe, signal.direction)
 
     asset = ASSETS_BY_SYMBOL[symbol]
-    candles = market[symbol]
     png = await asyncio.to_thread(
         render_signal,
-        candles,
+        market[symbol],
         asset_title=asset.title,
         direction=signal.direction,
         timeframe_label=timeframe_label(timeframe),
         digits=asset.digits,
         demo=app.demo_data,
+        header="99 SIGNAL" if premium else "AI MARKET SCANNER",
     )
 
     fresh = app.db.get_user(user.user_id) or user
-    caption = _signal_caption(fresh, asset.title, signal, timeframe)
+    caption = _signal_caption(fresh, asset.title, signal, timeframe, premium=premium)
     await message.delete()
     await message.answer_photo(
         BufferedInputFile(png, filename="signal.png"),
         caption=caption,
-        reply_markup=signal_menu(fresh.lang, app.config.po_ref_url),
+        reply_markup=signal_menu(
+            fresh.lang,
+            app.links()["pocket_url"],
+            repeat="menu:99" if premium else "menu:session",
+        ),
     )
 
 
-def _signal_caption(user: User, asset_title: str, signal, timeframe: int) -> str:
+def _signal_caption(user: User, asset_title: str, signal, timeframe: int, premium: bool = False) -> str:
     assert app is not None
     lang = user.lang
     minutes = max(1, timeframe // 60)
     lines = [
-        t(lang, "signal_title"),
+        t(lang, "s99_badge") if premium else t(lang, "signal_title"),
         "",
         "—" * 18,
         "",
@@ -280,11 +335,13 @@ def _signal_caption(user: User, asset_title: str, signal, timeframe: int) -> str
     return "\n".join(lines)
 
 
-async def _load_market(timeframe: int):
+async def _load_market(timeframe: int, limit: int = 5):
+    """limit=0 — пройти всі активи (для 99 Signal), інакше випадкова вибірка."""
     assert app is not None
     symbols = [asset.symbol for asset in await app.source.assets()]
     random.shuffle(symbols)
-    symbols = symbols[:5]
+    if limit:
+        symbols = symbols[:limit]
     market = {}
     digits = {}
     for symbol in symbols:
@@ -297,9 +354,10 @@ async def _load_market(timeframe: int):
     return market, digits
 
 
-async def _scanner_animation(message: Message, lang: str) -> None:
+async def _scanner_animation(message: Message, lang: str, premium: bool = False) -> None:
     """Той самий «AI Market Scanner», що в оригіналі: одне повідомлення, три кадри."""
-    lines = [t(lang, "scanner_title"), "", "—" * 18, "", t(lang, "scan_step1")]
+    title = t(lang, "s99_title") if premium else t(lang, "scanner_title")
+    lines = [title, "", "—" * 18, "", t(lang, "scan_step1")]
     frames = (
         lines,
         lines + [t(lang, "scan_step2")],

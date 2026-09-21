@@ -27,8 +27,21 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_pocket": "🎁 Pocket Option",
         "btn_subs": "💎 Підписки",
         "btn_lang": "🌐 Мова",
+        "btn_training": "🎓 Навчання",
+        "btn_99": "🔥 99 Signal",
         "btn_start_session": "🚀 Почати сесію",
         "btn_back": "⬅️ Назад",
+        "s99_title": "🔥 <b>99 SIGNAL</b>",
+        "s99_intro": (
+            "Один найсильніший сигнал на добу — бот бере його лише тоді, "
+            "коли всі правила збігаються одночасно."
+        ),
+        "s99_used": "🔥 99 Signal на сьогодні вже забрано. Наступний — завтра.",
+        "s99_none": (
+            "🔍 Зараз ринок не дає сигналу такої сили. Спробуй пізніше — "
+            "спроба не витрачена."
+        ),
+        "s99_badge": "🔥 <b>99 SIGNAL</b> — найсильніший збіг за добу",
         "lang_title": "🌐 <b>Оберіть мову</b>",
         "lang_saved": "✅ Мову змінено на українську.",
         "subs_title": "💎 <b>Підписки</b>",
@@ -90,6 +103,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_btn_stats": "📊 Оновити статистику",
         "admin_btn_search": "🔎 Пошук",
         "admin_btn_ssid": "🔑 Оновити сесію Pocket Option",
+        "admin_btn_links": "🔗 Посилання й тексти",
+        "admin_links_title": (
+            "🔗 <b>Посилання й тексти</b>\n\nТицяй, що міняємо — далі надішли нове значення "
+            "одним повідомленням. Щоб прибрати кнопку з меню, надішли <code>-</code>."
+        ),
+        "admin_link_prompt": "Надішли нове значення для <b>{name}</b>.\nЗараз: <code>{value}</code>",
+        "admin_link_saved": "✅ Збережено: <b>{name}</b>",
+        "admin_link_empty": "порожньо",
+        "link_channel_url": "Telegram канал",
+        "link_trader_url": "Особистий трейдер",
+        "link_pocket_url": "Pocket Option (реферал)",
+        "link_training_url": "Навчання (посилання)",
+        "link_plan1": "Тариф 1 — назва",
+        "link_plan1_desc": "Тариф 1 — опис",
+        "link_plan2": "Тариф 2 — назва",
+        "link_plan2_desc": "Тариф 2 — опис",
         "admin_users_title": "👥 <b>Користувачі</b> ({total}) — стор. {page}/{pages}",
         "admin_user_card": (
             "👤 <b>{name}</b>\n"
@@ -135,8 +164,21 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_pocket": "🎁 Pocket Option",
         "btn_subs": "💎 Подписки",
         "btn_lang": "🌐 Язык",
+        "btn_training": "🎓 Обучение",
+        "btn_99": "🔥 99 Signal",
         "btn_start_session": "🚀 Начать сессию",
         "btn_back": "⬅️ Назад",
+        "s99_title": "🔥 <b>99 SIGNAL</b>",
+        "s99_intro": (
+            "Один самый сильный сигнал в сутки — бот берёт его только тогда, "
+            "когда все правила совпадают одновременно."
+        ),
+        "s99_used": "🔥 99 Signal на сегодня уже забран. Следующий — завтра.",
+        "s99_none": (
+            "🔍 Сейчас рынок не даёт сигнала такой силы. Попробуй позже — "
+            "попытка не потрачена."
+        ),
+        "s99_badge": "🔥 <b>99 SIGNAL</b> — самое сильное совпадение за сутки",
         "lang_title": "🌐 <b>Выберите язык</b>",
         "lang_saved": "✅ Язык изменён на русский.",
         "subs_title": "💎 <b>Подписки</b>",
@@ -198,6 +240,22 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_btn_stats": "📊 Обновить статистику",
         "admin_btn_search": "🔎 Поиск",
         "admin_btn_ssid": "🔑 Обновить сессию Pocket Option",
+        "admin_btn_links": "🔗 Ссылки и тексты",
+        "admin_links_title": (
+            "🔗 <b>Ссылки и тексты</b>\n\nЖми, что меняем — дальше пришли новое значение "
+            "одним сообщением. Чтобы убрать кнопку из меню, пришли <code>-</code>."
+        ),
+        "admin_link_prompt": "Пришли новое значение для <b>{name}</b>.\nСейчас: <code>{value}</code>",
+        "admin_link_saved": "✅ Сохранено: <b>{name}</b>",
+        "admin_link_empty": "пусто",
+        "link_channel_url": "Telegram канал",
+        "link_trader_url": "Личный трейдер",
+        "link_pocket_url": "Pocket Option (реферал)",
+        "link_training_url": "Обучение (ссылка)",
+        "link_plan1": "Тариф 1 — название",
+        "link_plan1_desc": "Тариф 1 — описание",
+        "link_plan2": "Тариф 2 — название",
+        "link_plan2_desc": "Тариф 2 — описание",
         "admin_users_title": "👥 <b>Пользователи</b> ({total}) — стр. {page}/{pages}",
         "admin_user_card": (
             "👤 <b>{name}</b>\n"

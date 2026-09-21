@@ -21,6 +21,10 @@ app = None  # підставляє bot/main.py на старті
 PAGE_SIZE = 8
 PLANS = (("Standard", 30), ("VIP", 30), ("Trial", 3))
 
+# що адмін може міняти прямо з бота, без деплою
+EDITABLE = ("channel_url", "trader_url", "pocket_url", "training_url",
+            "plan1", "plan1_desc", "plan2", "plan2_desc")
+
 # що саме адмін зараз вводить текстом: {admin_id: "search" | "ssid"}
 _pending: dict[int, str] = {}
 
@@ -54,6 +58,27 @@ def _home_markup(lang: str):
         InlineKeyboardButton(text=t(lang, "admin_btn_search"), callback_data="adm:search"),
         InlineKeyboardButton(text=t(lang, "admin_btn_ssid"), callback_data="adm:ssid"),
     )
+    builder.row(InlineKeyboardButton(text=t(lang, "admin_btn_links"), callback_data="adm:links"))
+    return builder.as_markup()
+
+
+def _current_value(key: str) -> str:
+    if key.startswith("plan"):
+        return app.plan(key)
+    return app.links().get(key, "")
+
+
+def _links_markup(lang: str):
+    builder = InlineKeyboardBuilder()
+    for key in EDITABLE:
+        value = _current_value(key)
+        mark = "✅" if value else "▫️"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{mark} {t(lang, 'link_' + key)}", callback_data=f"adm:edit:{key}"
+            )
+        )
+    builder.row(InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="adm:home"))
     return builder.as_markup()
 
 
@@ -181,6 +206,19 @@ async def admin_callbacks(call: CallbackQuery) -> None:
         await call.message.answer(t(lang, "admin_ban_done" if flag else "admin_unban_done"))
         text, markup = _user_card(lang, user_id)
         await _edit(call, text, markup)
+    elif action == "links":
+        await _edit(call, t(lang, "admin_links_title"), _links_markup(lang))
+    elif action == "edit":
+        key = parts[2]
+        _pending[call.from_user.id] = f"link:{key}"
+        await call.message.answer(
+            t(
+                lang,
+                "admin_link_prompt",
+                name=t(lang, "link_" + key),
+                value=_current_value(key) or t(lang, "admin_link_empty"),
+            )
+        )
     elif action == "search":
         _pending[call.from_user.id] = "search"
         await call.message.answer(t(lang, "admin_search_prompt"))
@@ -201,6 +239,17 @@ async def admin_text_input(message: Message) -> None:
         app.reload_source()
         # у відповіді не повторюємо сам ключ — щоб він не висів у чаті
         await message.answer(t(lang, "admin_ssid_saved") + f" ({app.source.name})")
+        return
+
+    if mode.startswith("link:"):
+        key = mode.split(":", 1)[1]
+        if key not in EDITABLE:
+            return
+        app.db.set_setting(key, value)
+        await message.answer(
+            t(lang, "admin_link_saved", name=t(lang, "link_" + key)),
+            reply_markup=_links_markup(lang),
+        )
         return
 
     if mode == "search":

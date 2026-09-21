@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     session_day    TEXT,
     sub_plan       TEXT,
     sub_until      TEXT,
-    banned         INTEGER NOT NULL DEFAULT 0
+    banned         INTEGER NOT NULL DEFAULT 0,
+    last_99_day    TEXT
 );
 CREATE TABLE IF NOT EXISTS requests (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +70,8 @@ CREATE TABLE IF NOT EXISTS users (
     session_day    TEXT,
     sub_plan       TEXT,
     sub_until      TEXT,
-    banned         INTEGER NOT NULL DEFAULT 0
+    banned         INTEGER NOT NULL DEFAULT 0,
+    last_99_day    TEXT
 );
 CREATE TABLE IF NOT EXISTS requests (
     id        BIGSERIAL PRIMARY KEY,
@@ -94,6 +96,10 @@ CREATE TABLE IF NOT EXISTS sub_log (
     ts       TEXT NOT NULL
 );
 """
+
+
+MIGRATIONS: tuple[tuple[str, str], ...] = (("last_99_day", "last_99_day TEXT"),)
+"""Колонки, яких могло не бути в старішій базі: (ім'я, шматок DDL для ALTER TABLE)."""
 
 
 def now() -> datetime:
@@ -127,6 +133,15 @@ class _SqliteDriver:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA_SQLITE)
         self.conn.commit()
+        self.migrate()
+
+    def migrate(self) -> None:
+        """Догнати схему на базі, створеній старішою версією бота."""
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(users)").fetchall()}
+        for name, ddl in MIGRATIONS:
+            if name not in columns:
+                self.conn.execute(f"ALTER TABLE users ADD COLUMN {ddl}")
+        self.conn.commit()
 
     def query(self, sql: str, params: Sequence[Any] = ()) -> list[Any]:
         rows = self.conn.execute(sql, tuple(params)).fetchall()
@@ -152,6 +167,12 @@ class _PostgresDriver:
         self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row)
         with self.conn.cursor() as cursor:
             cursor.execute(SCHEMA_PG)
+        self.migrate()
+
+    def migrate(self) -> None:
+        with self.conn.cursor() as cursor:
+            for _name, ddl in MIGRATIONS:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {ddl}")
 
     @staticmethod
     def _translate(sql: str) -> str:
@@ -190,6 +211,11 @@ class User:
     sub_until: datetime | None
     banned: bool
     created_at: datetime | None = None
+    last_99_day: str | None = None
+
+    @property
+    def has_99_today(self) -> bool:
+        return self.last_99_day == date.today().isoformat()
 
     @property
     def sub_active(self) -> bool:
@@ -250,6 +276,7 @@ class Database:
             sub_until=_parse(row["sub_until"]),
             banned=bool(row["banned"]),
             created_at=_parse(row["created_at"]),
+            last_99_day=row["last_99_day"],
         )
 
     def set_lang(self, user_id: int, lang: str) -> None:
@@ -277,6 +304,21 @@ class Database:
             (used + 1, today, user_id),
         )
         return True
+
+    def consume_99(self, user_id: int) -> bool:
+        """Списати денний «99 Signal». False — сьогодні вже брав."""
+        today = date.today().isoformat()
+        rows = self.driver.query("SELECT last_99_day FROM users WHERE user_id = ?", (user_id,))
+        if not rows or rows[0]["last_99_day"] == today:
+            return False
+        self.driver.execute(
+            "UPDATE users SET last_99_day = ?, requests_used = requests_used + 1 WHERE user_id = ?",
+            (today, user_id),
+        )
+        return True
+
+    def reset_99(self, user_id: int) -> None:
+        self.driver.execute("UPDATE users SET last_99_day = NULL WHERE user_id = ?", (user_id,))
 
     def log_request(self, user_id: int, asset: str, timeframe: int, direction: str) -> None:
         self.driver.execute(
@@ -310,8 +352,11 @@ class Database:
         )
 
     def reset_today(self, user_id: int) -> None:
+        """Кнопка «обнулити сесії» в адмінці: і звичайні сесії, і денний 99 Signal."""
         self.driver.execute(
-            "UPDATE users SET sessions_today = 0, session_day = NULL WHERE user_id = ?", (user_id,)
+            "UPDATE users SET sessions_today = 0, session_day = NULL, last_99_day = NULL "
+            "WHERE user_id = ?",
+            (user_id,),
         )
 
     # ---------------- адмінка ----------------

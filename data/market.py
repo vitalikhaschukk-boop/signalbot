@@ -47,7 +47,6 @@ ASSETS: tuple[Asset, ...] = (
     Asset("USDCHF_otc", "USD/CHF OTC", "forex", 5),
     Asset("BTCUSD_otc", "BTC/USD OTC", "crypto", 2),
     Asset("ETHUSD_otc", "ETH/USD OTC", "crypto", 2),
-    Asset("SOLUSD_otc", "SOL/USD OTC", "crypto", 3),
     Asset("XAUUSD_otc", "XAU/USD OTC", "metal", 2),
 )
 
@@ -62,7 +61,6 @@ _BASE_PRICE = {
     "USDCHF_otc": 0.8890,
     "BTCUSD_otc": 96300.0,
     "ETHUSD_otc": 3120.0,
-    "SOLUSD_otc": 188.40,
     "XAUUSD_otc": 4295.0,
 }
 

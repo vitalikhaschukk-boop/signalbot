@@ -1,22 +1,25 @@
-"""Реальні свічки Pocket Option через неофіційний SDK `pocket-option`.
+"""Реальні свічки Pocket Option — власний клієнт socket.io поверх websocket.
 
-Як це працює: власник заходить у СВІЙ ДЕМО-акаунт Pocket Option у браузері,
-звідти дістається кадр авторизації websocket (SSID) — і бот слухає ті самі
-ціни, що бачить трейдер у терміналі. Ключ живе в БД (`po_ssid`) і міняється
-командою в адмінці, коли протухне.
+Офіційного API брокер не дає. Готовий SDK (`pocket-option`) ми пробували й
+відмовились: він рве зʼєднання, не знає половини OTC-активів і чекає на події,
+яких сервер не шле. Протокол простий, тож говоримо з ним самі — звірено
+живцем 2026-09-21:
 
-Офіційного API в Pocket Option немає, тож цей шар свідомо:
-  * тільки ЧИТАЄ котирування, жодних угод з коду;
-  * ходить від демо-акаунта, щоб не тягнути під ToS-ризик реальний рахунок;
-  * при будь-якій помилці віддає порожньо, а бот каже юзеру «немає зв'язку»
-    і НЕ списує сесію.
+    <- 0{"sid":...}                  рукостискання engine.io
+    -> 40                            відкрити namespace
+    <- 40{"sid":...}
+    -> 42["auth",{...}]              кадр з демо-термінала (поле session)
+    -> 42["loadHistoryPeriod",{asset,index,time,offset,period}]
+    <- 451-["loadHistoryPeriodFast",...] + бінарний кадр зі свічками
+    <- 2  ->  3                      пінг/понг, інакше сервер відключить
 
-Протокол звірено живцем 2026-09-21: socket.io v4 на wss://demo-api-eu.po.market,
-кадр `42["auth",{...}]`, історія приходить подією `load_history_period_fast`.
+Свідомі обмеження шару: тільки ЧИТАННЯ котирувань, жодних угод з коду,
+і ходимо від ДЕМО-акаунта, щоб не тягнути реальний рахунок під ToS-ризик.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -25,6 +28,9 @@ from dataclasses import dataclass
 from data.market import ASSETS, Asset, Candle
 
 log = logging.getLogger("signalbot.pocket")
+
+DEMO_URL = "wss://demo-api-eu.po.market/socket.io/?transport=websocket&EIO=4"
+REAL_URL = "wss://api-eu.po.market/socket.io/?transport=websocket&EIO=4"
 
 # без браузерних заголовків анти-DDoS перед брокером рве рукостискання
 HEADERS = {
@@ -36,12 +42,12 @@ HEADERS = {
     ),
 }
 
-AUTH_TIMEOUT = 15.0
+CONNECT_TIMEOUT = 15.0
 HISTORY_TIMEOUT = 15.0
 
 
 class PocketUnavailable(RuntimeError):
-    """SDK не встановлено, немає SSID або біржа не відповідає."""
+    """Немає SSID, ключ протух або брокер не відповідає."""
 
 
 @dataclass(slots=True)
@@ -50,14 +56,15 @@ class PocketCredentials:
     uid: int = 0
     is_demo: bool = True
     platform: int = 2
+    from_chart: bool = False  # ключ із сокета графіка/чату — торговий такий не пустить
 
     @classmethod
     def parse(cls, raw: str) -> "PocketCredentials":
-        """SSID копіюють по-різному: або голий рядок, або цілий JSON з кадру auth."""
+        """Приймає і голий рядок, і JSON, і цілий кадр `42["auth",{...}]` з DevTools."""
         raw = raw.strip()
         if not raw:
             raise PocketUnavailable("порожній SSID")
-        if raw.startswith("42["):  # цілий кадр із DevTools — витягнемо об'єкт
+        if raw.startswith("42["):
             try:
                 raw = json.dumps(json.loads(raw[2:])[1])
             except (ValueError, IndexError) as exc:
@@ -73,21 +80,28 @@ class PocketCredentials:
                 uid=int(data.get("uid") or 0),
                 is_demo=bool(int(data.get("isDemo", 1))),
                 platform=int(data.get("platform", 2)),
+                from_chart=bool(data.get("sessionToken") and not data.get("session")),
             )
         return cls(session=raw)
 
     @property
     def looks_like_trading_session(self) -> bool:
-        """Торгова сесія — серіалізований PHP-рядок, а не 32-символьний токен чату."""
-        return self.session.startswith("a:")
+        """У торгового кадру поле зветься `session`; у графіка — `sessionToken`."""
+        return not self.from_chart and bool(self.session)
+
+    def auth_payload(self) -> dict[str, object]:
+        return {
+            "session": self.session,
+            "isDemo": 1 if self.is_demo else 0,
+            "uid": self.uid,
+            "platform": self.platform,
+            "isFastHistory": True,
+            "isOptimized": True,
+        }
 
 
 class PocketSource:
-    """Адаптер поверх `pocket_option.PocketOptionClient`.
-
-    Тримає одне з'єднання на весь процес і кешує свічки на кілька секунд —
-    юзерів мало, а зайвий трафік на брокера тут нікому не потрібен.
-    """
+    """Одне живе зʼєднання на процес плюс короткий кеш свічок."""
 
     name = "pocket"
     real = True
@@ -95,75 +109,112 @@ class PocketSource:
     def __init__(self, ssid: str, cache_ttl: float = 5.0) -> None:
         self.credentials = PocketCredentials.parse(ssid)
         self.cache_ttl = cache_ttl
-        self._client = None
+        self._session = None
+        self._ws = None
+        self._reader: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._ready: asyncio.Future | None = None
         self._cache: dict[tuple[str, int], tuple[float, list[Candle]]] = {}
-        self._waiters: dict[tuple[str, int], asyncio.Future] = {}
+        self._waiters: dict[str, asyncio.Future] = {}
 
     # ---------------------------------------------------------------- connect
-    async def _ensure_client(self):
-        if self._client is not None:
-            return self._client
+    async def _connect(self) -> None:
+        import aiohttp
+
+        await self._teardown()
+        self._session = aiohttp.ClientSession()
+        url = DEMO_URL if self.credentials.is_demo else REAL_URL
         try:
-            from pocket_option import PocketOptionClient  # type: ignore import-not-found
-            from pocket_option.constants import Regions  # type: ignore import-not-found
-            from pocket_option.models import AuthorizationData  # type: ignore import-not-found
-        except ImportError as exc:  # pragma: no cover - залежить від оточення
-            raise PocketUnavailable(
-                "пакет pocket-option не встановлено (pip install pocket-option, Python 3.13+)"
-            ) from exc
+            self._ws = await self._session.ws_connect(url, headers=HEADERS, heartbeat=None)
+        except Exception as exc:  # noqa: BLE001 - мережа, TLS, блокування
+            await self._teardown()
+            raise PocketUnavailable(f"не підʼєднався до {url}: {exc}") from exc
 
-        client = PocketOptionClient(reconnection=True, reconnection_attempts=0)
-        authed: asyncio.Future = asyncio.get_running_loop().create_future()
-
-        @client.on.success_auth
-        async def _on_auth(_event) -> None:  # noqa: ANN001
-            if not authed.done():
-                authed.set_result(True)
-
-        @client.on.load_history_period_fast
-        async def _on_history(event) -> None:  # noqa: ANN001
-            key = (getattr(event.asset, "name", str(event.asset)), int(event.period))
-            waiter = self._waiters.pop(key, None)
-            if waiter is not None and not waiter.done():
-                waiter.set_result(event)
-
-        @client.on.disconnect
-        async def _on_disconnect(*_args) -> None:  # noqa: ANN002
-            log.warning("Pocket Option розірвав з'єднання — перепідключусь на наступному запиті")
-            self._client = None
-
-        auth = AuthorizationData(
-            session=self.credentials.session,
-            is_demo=1 if self.credentials.is_demo else 0,
-            uid=self.credentials.uid,
-            platform=self.credentials.platform,
-            is_fast_history=True,
-            is_optimized=True,
-        )
-        url = Regions.DEMO if self.credentials.is_demo else Regions.EUROPA
-
+        self._ready = asyncio.get_running_loop().create_future()
+        self._reader = asyncio.create_task(self._read_loop())
         try:
-            # socket.io серіалізує auth сам, тому віддаємо звичайний словник
-            await client.connect(url, headers=HEADERS, auth=auth.model_dump(by_alias=True))
-        except Exception as exc:  # noqa: BLE001 - SDK кидає свої класи помилок
-            raise PocketUnavailable(f"не під'єднався до {url}: {exc}") from exc
-
-        try:
-            await asyncio.wait_for(authed, timeout=AUTH_TIMEOUT)
+            await asyncio.wait_for(self._ready, timeout=CONNECT_TIMEOUT)
         except asyncio.TimeoutError as exc:
-            await self._close_client(client)
-            hint = (
-                ""
-                if self.credentials.looks_like_trading_session
-                else " (схоже, це ключ чату/графіка, а не торгового сокета — "
-                "потрібен кадр auth зі з'єднання з api-eu.po.market, там session починається з a:)"
-            )
-            raise PocketUnavailable(f"сесію не прийнято за {AUTH_TIMEOUT:.0f}с{hint}") from exc
+            await self._teardown()
+            raise PocketUnavailable("брокер не відкрив канал за 15с") from exc
+        log.info("Pocket Option: зʼєднання відкрите (demo=%s)", self.credentials.is_demo)
 
-        self._client = client
-        log.info("Pocket Option: авторизовано, demo=%s", self.credentials.is_demo)
-        return client
+    async def _read_loop(self) -> None:
+        """Читає кадри, тримає пінг-понг і роздає відповіді тим, хто їх чекає."""
+        import aiohttp
+
+        pending_event: str | None = None
+        try:
+            async for msg in self._ws:  # type: ignore[union-attr]
+                if msg.type is aiohttp.WSMsgType.BINARY:
+                    if pending_event is not None:
+                        self._dispatch(pending_event, msg.data)
+                        pending_event = None
+                    continue
+                if msg.type is not aiohttp.WSMsgType.TEXT:
+                    break
+
+                data: str = msg.data
+                if data.startswith("0{"):
+                    await self._send("40")
+                elif data.startswith("40"):
+                    await self._send("42" + json.dumps(["auth", self.credentials.auth_payload()]))
+                elif data == "2":
+                    await self._send("3")
+                elif data.startswith("451-"):
+                    pending_event = _event_name(data)
+                    self._mark_ready()
+                elif data.startswith("42"):
+                    name = _event_name(data)
+                    if name:
+                        self._dispatch(name, data, inline=True)
+        except Exception as exc:  # noqa: BLE001
+            log.info("Pocket Option: читання обірвалось (%s)", exc)
+        finally:
+            for waiter in self._waiters.values():
+                if not waiter.done():
+                    waiter.set_exception(PocketUnavailable("зʼєднання з брокером закрилось"))
+            self._waiters.clear()
+            self._ws = None
+
+    def _mark_ready(self) -> None:
+        """Брокер шле події лише після вдалої авторизації — це і є наш сигнал готовності."""
+        if self._ready is not None and not self._ready.done():
+            self._ready.set_result(True)
+
+    def _dispatch(self, event: str, payload: object, inline: bool = False) -> None:
+        if event != "loadHistoryPeriodFast":
+            return
+        try:
+            if inline:
+                body = json.loads(payload[payload.index("[") :])[1]  # type: ignore[union-attr]
+            else:
+                body = json.loads(payload)  # type: ignore[arg-type]
+        except (ValueError, IndexError, TypeError, AttributeError):
+            return
+        waiter = self._waiters.pop(str(body.get("asset")), None)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(body)
+
+    async def _send(self, frame: str) -> None:
+        if self._ws is None:
+            raise PocketUnavailable("немає зʼєднання з брокером")
+        await self._ws.send_str(frame)
+
+    async def _teardown(self) -> None:
+        if self._reader is not None:
+            self._reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._reader
+            self._reader = None
+        if self._ws is not None:
+            with contextlib.suppress(Exception):
+                await self._ws.close()
+            self._ws = None
+        if self._session is not None:
+            with contextlib.suppress(Exception):
+                await self._session.close()
+            self._session = None
 
     # ------------------------------------------------------------------ data
     async def assets(self) -> list[Asset]:
@@ -180,77 +231,69 @@ class PocketSource:
             if cached and time.time() - cached[0] < self.cache_ttl:
                 return cached[1]
 
-            client = await self._ensure_client()
-            from pocket_option.models import (  # type: ignore import-not-found
-                Asset as SdkAsset,
-                LoadHistoryPeriodRequest,
-            )
+            if self._ws is None:
+                await self._connect()
 
-            sdk_asset = getattr(SdkAsset, symbol, None)
-            if sdk_asset is None:
-                raise PocketUnavailable(f"актив {symbol} не відомий SDK")
-
-            key = (symbol, timeframe)
             waiter: asyncio.Future = asyncio.get_running_loop().create_future()
-            self._waiters[key] = waiter
+            self._waiters[symbol] = waiter
+            request = {
+                "asset": symbol,
+                "index": int(time.time() * 1000),
+                "time": int(time.time()),
+                "offset": timeframe * count,
+                "period": timeframe,
+            }
             try:
-                client.emit.load_history_period(
-                    LoadHistoryPeriodRequest(
-                        asset=sdk_asset,
-                        index=None,
-                        time=float(int(time.time())),
-                        offset=timeframe * count,
-                        period=timeframe,
-                    )
-                )
-                event = await asyncio.wait_for(waiter, timeout=HISTORY_TIMEOUT)
+                await self._send("42" + json.dumps(["loadHistoryPeriod", request]))
+                body = await asyncio.wait_for(waiter, timeout=HISTORY_TIMEOUT)
             except asyncio.TimeoutError as exc:
-                self._waiters.pop(key, None)
-                raise PocketUnavailable(f"історія {symbol} не приїхала за {HISTORY_TIMEOUT:.0f}с") from exc
+                self._waiters.pop(symbol, None)
+                await self._teardown()
+                raise PocketUnavailable(
+                    f"історія {symbol} не приїхала за {HISTORY_TIMEOUT:.0f}с{self._hint()}"
+                ) from exc
+            except PocketUnavailable:
+                self._waiters.pop(symbol, None)
+                raise
             except Exception as exc:  # noqa: BLE001
-                self._waiters.pop(key, None)
+                self._waiters.pop(symbol, None)
+                await self._teardown()
                 raise PocketUnavailable(f"помилка Pocket Option: {exc}") from exc
 
-            candles = _to_candles(event)
+            candles = _to_candles(body)
             if not candles:
-                raise PocketUnavailable(f"Pocket Option повернув порожню історію по {symbol}")
-            self._cache[key] = (time.time(), candles)
+                raise PocketUnavailable(f"порожня історія по {symbol}")
+            self._cache[(symbol, timeframe)] = (time.time(), candles)
             return candles
 
-    async def close(self) -> None:
-        client, self._client = self._client, None
-        await self._close_client(client)
+    def _hint(self) -> str:
+        if self.credentials.looks_like_trading_session:
+            return " — схоже, ключ протух, онови його в /admin"
+        return (
+            " — ключ узято з сокета графіка/чату; потрібен кадр auth торгового "
+            "зʼєднання (поле session, а не sessionToken)"
+        )
 
-    @staticmethod
-    async def _close_client(client) -> None:  # noqa: ANN001
-        if client is None:
-            return
-        for method in ("disconnect", "close"):
-            handler = getattr(client, method, None)
-            if handler is None:
-                continue
-            try:
-                result = handler()
-                if asyncio.iscoroutine(result):
-                    await result
-            except Exception as exc:  # noqa: BLE001
-                log.debug("не зміг закрити з'єднання: %s", exc)
-            return
+    async def close(self) -> None:
+        await self._teardown()
+
+
+def _event_name(frame: str) -> str:
+    try:
+        return str(json.loads(frame[frame.index("[") :])[0])
+    except (ValueError, IndexError):
+        return ""
 
 
 def _to_candles(raw: object) -> list[Candle]:
-    """Нормалізувати відповідь SDK у наші свічки.
-
-    Приймає і подію SDK (у неї свічки лежать у `.data`), і сирий список
-    словників — щоб шар не ламався, якщо бібліотека змінить обгортку.
-    """
+    """Нормалізувати відповідь брокера у наші свічки (приймає і dict, і обʼєкти)."""
     items = raw
     for attribute in ("data", "candles", "history"):
         if hasattr(items, attribute):
             items = getattr(items, attribute)
             break
     if isinstance(items, dict):
-        items = items.get("candles") or items.get("data") or []
+        items = items.get("data") or items.get("candles") or []
     if not isinstance(items, (list, tuple)):
         return []
 

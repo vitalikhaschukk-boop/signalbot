@@ -57,6 +57,17 @@ class Config:
             daily_sessions=int(_env("DAILY_SESSIONS", "3") or 3),
             data_backend=_env("DATA_BACKEND", "sim").lower(),
             po_ssid=_env("PO_SSID"),
-            database_url=_env("DATABASE_URL"),
+            # Northflank/Neon/Railway називають цю змінну по-різному — беремо першу непорожню
+            database_url=next(
+                (
+                    _env(name)
+                    for name in (
+                        "DATABASE_URL", "DATABASE_URI", "POSTGRES_URL",
+                        "POSTGRES_URI", "POSTGRESQL_URI", "PG_URI",
+                    )
+                    if _env(name)
+                ),
+                "",
+            ),
             db_path=(ROOT / db) if not os.path.isabs(db) else Path(db),
         )

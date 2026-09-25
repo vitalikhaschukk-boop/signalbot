@@ -415,8 +415,8 @@ def _quality_bar(quality: int, cells: int = 10) -> str:
     return "🟩" * filled + "⬜" * (cells - filled)
 
 
-async def _load_market(timeframe: int, limit: int = 5):
-    """Випадкова вибірка з `limit` активів."""
+async def _load_market(timeframe: int, limit: int = 0):
+    """Усі активи (limit=0) або випадкова вибірка з `limit`. На 5 з 9 порожня відповідь була в ~26% спроб."""
     assert app is not None
     symbols = [asset.symbol for asset in await app.source.assets()]
     random.shuffle(symbols)

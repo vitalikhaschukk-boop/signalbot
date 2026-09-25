@@ -21,6 +21,7 @@ from bot.keyboards import BOTTOM_ACTIONS, TIMEFRAMES, signal_menu
 from core.chart import render_signal
 from core.db import now
 from core.i18n import t
+from core.signals import analyze
 from data import po_diag, po_session
 from data.market import ASSETS, timeframe_label
 from data.pocket import PocketUnavailable
@@ -198,6 +199,40 @@ async def cmd_podiag(message: Message) -> None:
     status = await message.answer("🩺 Pocket Option: перевіряю доступ із сервера…")
     lines = await po_diag.run()
     await status.edit_text("🩺 <b>Pocket Option з сервера</b>\n\n" + "\n\n".join(html.escape(x) for x in lines))
+
+
+@router.message(Command("scan"))
+async def cmd_scan(message: Message, command: CommandObject) -> None:
+    """/scan [хвилини] — бал движка по кожному активу на поточних даних: чому «входу нема»."""
+    assert message.from_user is not None
+    if not _is_admin(message.from_user.id):
+        await message.answer(t(_lang(message.from_user.id), "admin_denied"))
+        return
+    minutes = int(command.args) if (command.args or "").strip().isdigit() else 1
+    timeframe = max(1, minutes) * 60
+    status = await message.answer(f"🔎 Сканую всі активи на M{timeframe // 60} ({app.source.name})…")
+    lines = []
+    for asset in ASSETS:
+        try:
+            candles = await app.source.candles(asset.symbol, timeframe, count=120)
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"❌ {asset.title}: {html.escape(str(exc))[:80]}")
+            continue
+        signal = analyze(candles, asset.digits, min_score=0.01)
+        volume = sum(c.volume for c in candles[-10:])
+        if signal is None:
+            lines.append(f"▫️ {asset.title}: 0 балів · {len(candles)} свічок · обсяг {volume:.0f}")
+            continue
+        fired = ", ".join(key.removeprefix("reason_") for key, _ in signal.reasons if "continuation" not in key)
+        mark = "✅" if signal.score >= 3.0 else ("🟡" if signal.score >= 2.2 else "▫️")
+        lines.append(
+            f"{mark} {asset.title}: {signal.direction} {signal.score} (проти {signal.against}) · "
+            f"{len(candles)} свічок · обсяг {volume:.0f} · {fired or '—'}"
+        )
+    await status.edit_text(
+        f"🔎 <b>Скан M{timeframe // 60}</b> ({app.source.name}) — ✅ ≥3.0 сигнал · 🟡 ≥2.2 запасний\n\n"
+        + "\n".join(lines)
+    )
 
 
 @router.message(Command("addadmin", "deladmin"))

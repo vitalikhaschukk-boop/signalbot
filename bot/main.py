@@ -48,6 +48,8 @@ router = Router()
 PO_REFRESH_EVERY = timedelta(hours=6)
 # скільки максимум сканувати активи в одній сесії, секунд (далі — беремо, що встигли)
 SCAN_BUDGET = 20.0
+# якщо жоден актив не дотягнув до повного порогу 3.0 — беремо найкращий від цього балу (якість у % буде нижчою)
+FALLBACK_SCORE = 2.2
 
 PLAN_DEFAULTS = {
     "plan1": "Standard — 3 сигнали/день",
@@ -405,7 +407,7 @@ async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int) ->
         await message.edit_text(t(user.lang, "data_error"), reply_markup=back_menu(user.lang))
         return
 
-    best = pick_best(market, digits)
+    best = pick_best(market, digits) or pick_best(market, digits, min_score=FALLBACK_SCORE)
     if best is None:
         await message.edit_text(t(user.lang, "no_signal"), reply_markup=back_menu(user.lang))
         return
@@ -554,6 +556,7 @@ async def _set_commands(bot: Bot) -> None:
                     BotCommand(command="start", description=t("uk", "cmd_start")),
                     BotCommand(command="admin", description="🛠 Адмін-панель"),
                     BotCommand(command="podiag", description="🩺 Перевірка Pocket Option"),
+                    BotCommand(command="scan", description="🔎 Скан активів: чому нема входу"),
                     BotCommand(command="addadmin", description="👮 Адміни"),
                 ],
                 scope=BotCommandScopeChat(chat_id=admin_id),

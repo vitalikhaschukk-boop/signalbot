@@ -151,6 +151,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Повідомлення з ключем бот одразу видалить із чату."
         ),
         "admin_ssid_saved": "✅ Сесію Pocket Option оновлено.",
+        "admin_ssid_checking": "⏳ Перевіряю ключ на Pocket Option…",
         "admin_ids_usage": "👮 Адміни: <code>{ids}</code>\n\nДодати: <code>/addadmin ID</code>\nПрибрати: <code>/deladmin ID</code>",
         "admin_added": "✅ <code>{user_id}</code> тепер адмін. Хай натисне /start у боті, щоб отримувати сповіщення.",
         "admin_removed": "✅ <code>{user_id}</code> більше не адмін.",
@@ -335,6 +336,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Сообщение с ключом бот сразу удалит из чата."
         ),
         "admin_ssid_saved": "✅ Сессия Pocket Option обновлена.",
+        "admin_ssid_checking": "⏳ Проверяю ключ на Pocket Option…",
         "admin_ids_usage": "👮 Админы: <code>{ids}</code>\n\nДобавить: <code>/addadmin ID</code>\nУбрать: <code>/deladmin ID</code>",
         "admin_added": "✅ <code>{user_id}</code> теперь админ. Пусть нажмёт /start в боте, чтобы получать уведомления.",
         "admin_removed": "✅ <code>{user_id}</code> больше не админ.",

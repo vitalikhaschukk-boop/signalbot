@@ -566,10 +566,21 @@ async def _save_po_key(message: Message, lang: str, value: str) -> None:
     with contextlib.suppress(Exception):
         await message.delete()
     if not po_session.looks_like_cookies(value):
+        previous = app.db.get_setting("po_ssid")
         app.db.set_setting("po_ssid", value)
         app.reload_source()
         # у відповіді не повторюємо сам ключ — щоб він не висів у чаті
-        await message.answer(t(lang, "admin_ssid_saved") + f" ({app.source.name})")
+        status = await message.answer(t(lang, "admin_ssid_checking"))
+        try:
+            candles = await app.source.candles(ASSETS[0].symbol, 60, count=30)
+        except PocketUnavailable as exc:
+            app.db.set_setting("po_ssid", previous)  # нема попереднього — повертаємось до порожнього
+            app.reload_source()
+            await status.edit_text(t(lang, "admin_key_bad", error=html.escape(str(exc))))
+            return
+        await status.edit_text(
+            t(lang, "admin_ssid_saved") + f" ({app.source.name}) · {ASSETS[0].title}: {len(candles)} свічок"
+        )
         return
     try:
         cookies = po_session.parse_cookies(value)

@@ -66,7 +66,8 @@ class App:
     def _build_source(self):
         ssid = self.db.get_setting("po_ssid", self.config.po_ssid)
         has_cookies = bool(self.db.get_setting("po_cookies"))
-        if self.config.data_backend == "pocket" and (ssid or has_cookies):
+        # є ключ від адміна — працюємо на Pocket Option; симуляція лише коли ключа нема зовсім
+        if ssid or has_cookies:
             try:
                 return PocketSource(ssid, refresher=self.refresh_po_session if has_cookies else None)
             except PocketUnavailable as exc:

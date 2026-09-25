@@ -23,7 +23,7 @@ from core.db import now
 from core.i18n import t
 from core.signals import analyze
 from data import po_diag, po_session
-from data.market import ASSETS, timeframe_label
+from data.market import ALL_ASSETS, ASSETS, timeframe_label
 from data.pocket import PocketUnavailable
 
 log = logging.getLogger("signalbot.admin")
@@ -212,7 +212,7 @@ async def cmd_scan(message: Message, command: CommandObject) -> None:
     timeframe = max(1, minutes) * 60
     status = await message.answer(f"🔎 Сканую всі активи на M{timeframe // 60} ({app.source.name})…")
     lines = []
-    for asset in ASSETS:
+    for asset in ALL_ASSETS:
         try:
             candles = await app.source.candles(asset.symbol, timeframe, count=120)
         except Exception as exc:  # noqa: BLE001
@@ -389,8 +389,8 @@ async def _queue_callback(call: CallbackQuery, lang: str, action: str, args: lis
     builder = InlineKeyboardBuilder()
 
     if action == "qr":  # 1) актив
-        for index, asset in enumerate(ASSETS):
-            builder.button(text=asset.title.replace(" OTC", ""), callback_data=f"adm:qa:{rid}:{index}")
+        for index, asset in enumerate(ALL_ASSETS):
+            builder.button(text=asset.title, callback_data=f"adm:qa:{rid}:{index}")
         builder.adjust(3)
         builder.row(InlineKeyboardButton(text=t(lang, "admin_btn_reject"), callback_data=f"adm:qx:{rid}"))
         builder.row(InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="adm:q"))
@@ -404,7 +404,7 @@ async def _queue_callback(call: CallbackQuery, lang: str, action: str, args: lis
                                  style=ButtonStyle.DANGER),
         )
         builder.row(InlineKeyboardButton(text=t(lang, "btn_back"), callback_data=f"adm:qr:{rid}"))
-        step = t(lang, "admin_99_step_dir", asset=ASSETS[index].title)
+        step = t(lang, "admin_99_step_dir", asset=ALL_ASSETS[index].title)
         await _edit(call, _request_text(lang, request, step), builder.as_markup())
     elif action == "qd":  # 3) експірація
         index, side = int(args[1]), args[2]
@@ -417,7 +417,7 @@ async def _queue_callback(call: CallbackQuery, lang: str, action: str, args: lis
             ]
         )
         builder.row(InlineKeyboardButton(text=t(lang, "btn_back"), callback_data=f"adm:qa:{rid}:{index}"))
-        step = t(lang, "admin_99_step_tf", asset=ASSETS[index].title, direction=_side(side))
+        step = t(lang, "admin_99_step_tf", asset=ALL_ASSETS[index].title, direction=_side(side))
         await _edit(call, _request_text(lang, request, step), builder.as_markup())
     elif action == "qt":  # 4) коментар або «без коментаря»
         index, side, seconds = int(args[1]), args[2], int(args[3])
@@ -432,7 +432,7 @@ async def _queue_callback(call: CallbackQuery, lang: str, action: str, args: lis
         step = t(
             lang,
             "admin_99_step_comment",
-            asset=ASSETS[index].title,
+            asset=ALL_ASSETS[index].title,
             direction=_side(side),
             tf=timeframe_label(seconds),
         )
@@ -471,7 +471,7 @@ async def _send_99(
 ) -> None:
     """Рендер картки з реальних свічок активу й відправка юзеру. Двічі не піде: close_99 атомарний."""
     request = app.db.get_99(request_id)
-    asset = ASSETS[index]
+    asset = ALL_ASSETS[index]
     direction = _side(side)
     if request is None or not app.db.close_99(request_id, "sent", admin_id, asset.symbol, direction, seconds):
         await reply_to.answer(t(lang, "admin_99_closed", request_id=request_id))
@@ -485,7 +485,7 @@ async def _send_99(
         "",
         "—" * 18,
         "",
-        t(user_lang, "signal_asset", asset=asset.title),
+        t(user_lang, "signal_asset", asset=asset.name),
         t(user_lang, "signal_dir_buy" if direction == "BUY" else "signal_dir_sell"),
         t(user_lang, "signal_tf", tf=timeframe_label(seconds)),
         t(user_lang, "signal_exp", minutes=max(1, seconds // 60)),
@@ -500,11 +500,11 @@ async def _send_99(
         png = None
         try:
             candles = await app.source.candles(asset.symbol, seconds, count=120)
-            if len(candles) >= 20:
+            if len(candles) >= 20 and not app.demo_data:  # вигаданий графік юзеру не шлемо — тоді лише текст
                 png = await asyncio.to_thread(
                     render_signal,
                     candles,
-                    asset_title=asset.title,
+                    asset_title=asset.name,
                     direction=direction,
                     timeframe_label=timeframe_label(seconds),
                     digits=asset.digits,

@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
-from data.market import ASSETS, Asset, Candle
+from data.market import Asset, Candle, live_assets
 
 log = logging.getLogger("signalbot.pocket")
 
@@ -125,6 +125,7 @@ class PocketSource:
         self._ready: asyncio.Future | None = None
         self._cache: dict[tuple[str, int], tuple[float, list[Candle]]] = {}
         self._waiters: dict[str, asyncio.Future] = {}
+        self._bad: set[str] = set()
 
     # ---------------------------------------------------------------- connect
     async def _connect(self) -> None:
@@ -254,8 +255,9 @@ class PocketSource:
 
     # ------------------------------------------------------------------ data
     async def assets(self) -> list[Asset]:
-        # Список тримаємо свій: нам потрібні конкретні пари, а не весь каталог брокера.
-        return list(ASSETS)
+        # Список тримаємо свій: у години ринку — звичайні пари, інакше OTC.
+        # Актив, який брокер не віддав (напр. назва не та), до рестарту не пропонуємо.
+        return [asset for asset in live_assets() if asset.symbol not in self._bad]
 
     async def candles(self, symbol: str, timeframe: int, count: int = 120) -> list[Candle]:
         cached = self._cache.get((symbol, timeframe))
@@ -284,6 +286,8 @@ class PocketSource:
                 body = await asyncio.wait_for(waiter, timeout=HISTORY_TIMEOUT)
             except asyncio.TimeoutError as exc:
                 self._waiters.pop(symbol, None)
+                if not symbol.endswith("_otc"):
+                    self._bad.add(symbol)  # звичайна пара без відповіді — далі беремо OTC
                 await self._teardown()
                 raise PocketUnavailable(
                     f"історія {symbol} не приїхала за {HISTORY_TIMEOUT:.0f}с{self._hint()}"

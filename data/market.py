@@ -13,6 +13,7 @@ import math
 import random
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 
@@ -37,6 +38,11 @@ class Asset:
     kind: str            # forex | crypto | metal | stock
     digits: int = 5      # скільки знаків після коми малювати
 
+    @property
+    def name(self) -> str:
+        """Як бачить юзер: без позначки OTC."""
+        return self.title.removesuffix(" OTC")
+
 
 ASSETS: tuple[Asset, ...] = (
     Asset("EURUSD_otc", "EUR/USD OTC", "forex", 5),
@@ -50,7 +56,36 @@ ASSETS: tuple[Asset, ...] = (
     Asset("XAUUSD_otc", "XAU/USD OTC", "metal", 2),
 )
 
-ASSETS_BY_SYMBOL = {asset.symbol: asset for asset in ASSETS}
+# Звичайні (не OTC) пари Pocket Option — реальний ринок, торгуються лише коли відкритий форекс.
+# Крипта в PO тільки OTC, тому її тут нема.
+REGULAR: tuple[Asset, ...] = (
+    Asset("EURUSD", "EUR/USD", "forex", 5),
+    Asset("GBPUSD", "GBP/USD", "forex", 5),
+    Asset("USDJPY", "USD/JPY", "forex", 3),
+    Asset("EURJPY", "EUR/JPY", "forex", 3),
+    Asset("AUDCAD", "AUD/CAD", "forex", 5),
+    Asset("USDCHF", "USD/CHF", "forex", 5),
+    Asset("XAUUSD", "XAU/USD", "metal", 2),
+)
+ALL_ASSETS: tuple[Asset, ...] = REGULAR + ASSETS
+
+ASSETS_BY_SYMBOL = {asset.symbol: asset for asset in ALL_ASSETS}
+
+
+def forex_open(now: datetime | None = None) -> bool:
+    """Валютний ринок відкритий: з неділі 21:00 до пʼятниці 21:00 UTC."""
+    now = now or datetime.now(timezone.utc)
+    weekday, hour = now.weekday(), now.hour
+    if weekday == 5 or (weekday == 4 and hour >= 21) or (weekday == 6 and hour < 21):
+        return False
+    return True
+
+
+def live_assets(now: datetime | None = None) -> list[Asset]:
+    """Що давати в сесії: у робочі години ринку — звичайні пари + OTC-крипта, інакше все OTC."""
+    if forex_open(now):
+        return list(REGULAR) + [asset for asset in ASSETS if asset.kind == "crypto"]
+    return list(ASSETS)
 
 _BASE_PRICE = {
     "EURUSD_otc": 1.0850,

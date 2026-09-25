@@ -424,7 +424,7 @@ async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int) ->
     png = await asyncio.to_thread(
         render_signal,
         market[symbol],
-        asset_title=asset.title,
+        asset_title=asset.name,
         direction=signal.direction,
         timeframe_label=timeframe_label(timeframe),
         digits=asset.digits,
@@ -432,7 +432,7 @@ async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int) ->
     )
 
     fresh = app.db.get_user(user.user_id) or user
-    caption = _signal_caption(fresh, asset.title, signal, timeframe)
+    caption = _signal_caption(fresh, asset.name, signal, timeframe)
     await message.delete()
     await message.answer_photo(
         BufferedInputFile(png, filename="signal.png"),
@@ -483,6 +483,8 @@ def _quality_bar(quality: int, cells: int = 10) -> str:
 async def _load_market(timeframe: int, limit: int = 0):
     """Усі активи (limit=0) або випадкова вибірка з `limit`. На 5 з 9 порожня відповідь була в ~26% спроб."""
     assert app is not None
+    if app.demo_data:  # без ключа PO юзерам не малюємо вигаданий ринок
+        raise PocketUnavailable("немає ключа Pocket Option — вставте його в /admin → 🔑")
     symbols = [asset.symbol for asset in await app.source.assets()]
     random.shuffle(symbols)
     if limit:
@@ -491,13 +493,11 @@ async def _load_market(timeframe: int, limit: int = 0):
     digits = {}
     deadline = time.monotonic() + SCAN_BUDGET
     for symbol in symbols:
-        if market and time.monotonic() > deadline:
-            break  # вже є з чого вибирати — не тримаємо юзера на екрані сканера
+        if time.monotonic() > deadline:
+            break  # не тримаємо юзера на екрані сканера: беремо, що встигли
         try:
             candles = await app.source.candles(symbol, timeframe, count=120)
         except PocketUnavailable as exc:
-            if not market:
-                raise  # перший же актив не відповів — це звʼязок/ключ, а не один актив
             log.info("актив %s пропущено: %s", symbol, exc)
             continue
         if len(candles) >= 40:

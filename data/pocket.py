@@ -24,6 +24,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 from data.market import ASSETS, Asset, Candle
 
@@ -106,8 +107,16 @@ class PocketSource:
     name = "pocket"
     real = True
 
-    def __init__(self, ssid: str, cache_ttl: float = 5.0) -> None:
-        self.credentials = PocketCredentials.parse(ssid)
+    def __init__(
+        self,
+        ssid: str = "",
+        cache_ttl: float = 5.0,
+        refresher: Callable[[], Awaitable[PocketCredentials]] | None = None,
+    ) -> None:
+        if not ssid and refresher is None:
+            raise PocketUnavailable("порожній SSID")
+        self.credentials = PocketCredentials.parse(ssid) if ssid else None
+        self.refresher = refresher  # дістає свіжий ключ через cookies сайту
         self.cache_ttl = cache_ttl
         self._session = None
         self._ws = None
@@ -119,6 +128,25 @@ class PocketSource:
 
     # ---------------------------------------------------------------- connect
     async def _connect(self) -> None:
+        """Підʼєднатись; якщо ключа нема або брокер його відкинув — оновити через cookies і ще раз."""
+        refreshed = False
+        if self.credentials is None:
+            await self._refresh()
+            refreshed = True
+        try:
+            await self._open()
+        except PocketUnavailable as exc:
+            if self.refresher is None or refreshed:
+                raise
+            log.info("Pocket Option: ключ не пройшов (%s) — оновлюю через cookies", exc)
+            await self._refresh()
+            await self._open()
+
+    async def _refresh(self) -> None:
+        assert self.refresher is not None
+        self.credentials = await self.refresher()
+
+    async def _open(self) -> None:
         import aiohttp
 
         await self._teardown()
@@ -137,6 +165,9 @@ class PocketSource:
         except asyncio.TimeoutError as exc:
             await self._teardown()
             raise PocketUnavailable("брокер не відкрив канал за 15с") from exc
+        except PocketUnavailable:
+            await self._teardown()
+            raise
         log.info("Pocket Option: зʼєднання відкрите (demo=%s)", self.credentials.is_demo)
 
     async def _read_loop(self) -> None:
@@ -161,6 +192,11 @@ class PocketSource:
                     await self._send("42" + json.dumps(["auth", self.credentials.auth_payload()]))
                 elif data == "2":
                     await self._send("3")
+                elif data.startswith("41"):
+                    # сервер закрив namespace одразу після auth — ключ не прийнято
+                    if self._ready is not None and not self._ready.done():
+                        self._ready.set_exception(PocketUnavailable("брокер відкинув ключ"))
+                    break
                 elif data.startswith("451-"):
                     pending_event = _event_name(data)
                     self._mark_ready()
@@ -267,7 +303,7 @@ class PocketSource:
             return candles
 
     def _hint(self) -> str:
-        if self.credentials.looks_like_trading_session:
+        if self.credentials is None or self.credentials.looks_like_trading_session:
             return " — схоже, ключ протух, онови його в /admin"
         return (
             " — ключ узято з сокета графіка/чату; потрібен кадр auth торгового "
@@ -276,6 +312,11 @@ class PocketSource:
 
     async def close(self) -> None:
         await self._teardown()
+
+    async def drop_connection(self) -> None:
+        """Закрити зʼєднання між запитами (не посеред чужого): наступний підʼєднається заново."""
+        async with self._lock:
+            await self._teardown()
 
 
 def _event_name(frame: str) -> str:

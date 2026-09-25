@@ -70,6 +70,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "signal_dir_sell": "🔴 Напрямок: <b>SELL</b>",
         "signal_tf": "🕐 Таймфрейм: <b>{tf}</b>",
         "signal_exp": "⏱ Експірація: <b>{minutes} хв</b>",
+        "signal_quality": "⚡ Якість сигналу: <b>{quality}%</b>\n{bar}",
         "signal_reasons": "📝 Причина входу:",
         "signal_left": "🎯 Залишилось сесій сьогодні: <b>{left}/{limit}</b>",
         "btn_open_trade": "🎯 Відкрити угоду",
@@ -94,6 +95,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_denied": "🚫 Ця команда не для тебе.",
         "admin_title": "🛠 <b>Адмін-панель</b>",
         "admin_stats": (
+            "🔥 У черзі 99 Signal: <b>{queue}</b>\n"
             "👥 Користувачів: <b>{users}</b> (за добу +{new_24h})\n"
             "💎 З активною підпискою: <b>{active_subs}</b>\n"
             "📨 Запитів усього: <b>{requests}</b> (за добу {requests_24h})\n"
@@ -123,7 +125,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_user_card": (
             "👤 <b>{name}</b>\n"
             "🆔 <code>{user_id}</code>\n"
-            "🌐 Мова: {lang}\n"
+            "🌐 Мова: {user_lang}\n"
             "📨 Запитів з'їдено: <b>{requests}</b>\n"
             "🎯 Сьогодні: <b>{used}/{limit}</b>\n"
             "💎 Підписка: <b>{sub}</b>"
@@ -140,11 +142,53 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_btn_unban": "✅ Розблокувати",
         "admin_search_prompt": "Надішли ID, @нік або частину імені:",
         "admin_ssid_prompt": (
-            "Надішли новий SSID Pocket Option одним повідомленням.\n"
-            "Він живе в localStorage сторінки після входу в демо-акаунт."
+            "🔑 Надішли <b>cookies</b> Pocket Option — файлом або текстом "
+            "(Cookie-Editor → Export → JSON). Тоді бот сам оновлюватиме ключ, заходити на сайт не треба.\n\n"
+            "Або старий спосіб — кадр <code>42[\"auth\",...]</code> з DevTools (протухає за кілька днів).\n\n"
+            "Повідомлення з ключем бот одразу видалить із чату."
         ),
         "admin_ssid_saved": "✅ Сесію Pocket Option оновлено.",
+        "admin_ids_usage": "👮 Адміни: <code>{ids}</code>\n\nДодати: <code>/addadmin ID</code>\nПрибрати: <code>/deladmin ID</code>",
+        "admin_added": "✅ <code>{user_id}</code> тепер адмін. Хай натисне /start у боті, щоб отримувати сповіщення.",
+        "admin_removed": "✅ <code>{user_id}</code> більше не адмін.",
+        "admin_is_owner": "⚠️ <code>{user_id}</code> заданий у налаштуваннях сервера (ADMIN_IDS) — з бота його не прибрати.",
+        "admin_cookies_checking": "⏳ Отримав {n} cookies, перевіряю вхід у Pocket Option…",
+        "admin_cookies_ok": (
+            "✅ <b>Cookies працюють.</b> Ключ отримано, {asset}: {n} свічок, джерело — <b>{backend}</b>.\n\n"
+            "Далі бот сам оновлює ключ кожні 6 годин і щоразу, коли брокер його відкине."
+        ),
+        "admin_key_bad": "❌ Не вийшло: {error}\n\nСтарий ключ лишився без змін.",
+        "po_alert": (
+            "🔑 <b>Pocket Option: не вдалось оновити ключ</b>\n\n"
+            "Причина: {reason}\n\n"
+            "Залогінься в Pocket Option, вивантаж cookies заново (Cookie-Editor → Export) "
+            "і надішли їх у /admin → 🔑. Поки що сигнали можуть не працювати."
+        ),
         "admin_sub_none": "немає",
+        "s99_accepted": "🔥 <b>99 SIGNAL</b>\n\n{sep}\n\n✅ <b>Запит прийнято!</b>\n\n👨‍💻 Аналітик уже вручну розбирає ринок і шукає найсильнішу точку входу дня.\n\n⏳ Сигнал прийде сюди протягом <b>1–5 годин</b>.\n🔔 Не вимикай сповіщення: бот надішле сигнал, щойно аналітик його видасть.\n\n{sep}\n\n🧾 Запит <b>№{request_id}</b> · {time} UTC",
+        "s99_waiting": "⏳ <b>Твій запит №{request_id} уже в роботі.</b>\n\nАналітик надішле сигнал протягом 1–5 годин з моменту запиту ({time} UTC).",
+        "s99_manual_badge": "🔥 <b>99 SIGNAL</b> — від аналітика",
+        "s99_comment": "💬 <b>Коментар аналітика:</b>",
+        "s99_act_now": "⚡ Відкривай угоду одразу: сигнал актуальний кілька хвилин.",
+        "s99_rejected": "😔 Сьогодні аналітик не знайшов для тебе входу достатньої якості.\n\nСпробу повернуто — натисни 🔥 99 Signal ще раз, коли зручно.",
+        "admin_btn_queue": "🔥 Черга 99 Signal ({n})",
+        "admin_queue_title": "🔥 <b>Черга 99 Signal</b> — {n} чекають",
+        "admin_queue_empty": "🔥 Черга 99 Signal порожня.",
+        "admin_new_99": "🔔 <b>Новий запит 99 Signal</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запит №{request_id}\n📋 У черзі всього: <b>{n}</b>\n\nЮзеру обіцяно сигнал протягом 1–5 годин.",
+        "admin_btn_issue": "✍️ Видати сигнал",
+        "admin_99_card": "🔥 <b>Запит №{request_id}</b>\n\n👤 {name} · <code>{user_id}</code>\n⏳ Чекає: <b>{waited}</b>\n\n{step}",
+        "admin_99_step_asset": "1️⃣ Обери актив:",
+        "admin_99_step_dir": "📊 {asset}\n\n2️⃣ Напрямок:",
+        "admin_99_step_tf": "📊 {asset} · {direction}\n\n3️⃣ Експірація:",
+        "admin_99_step_comment": "📊 {asset} · {direction} · {tf}\n\n4️⃣ Надішли коментар (причину входу) одним повідомленням — або тисни «Без коментаря».",
+        "admin_btn_no_comment": "➡️ Без коментаря",
+        "admin_btn_reject": "❌ Відхилити (повернути спробу)",
+        "admin_99_sent": "✅ Сигнал №{request_id} надіслано {name}: {asset} {direction} {tf}.",
+        "admin_99_closed": "ℹ️ Запит №{request_id} уже закрито.",
+        "admin_99_rejected": "✅ Запит №{request_id} відхилено, спробу юзеру повернуто.",
+        "admin_99_undelivered": "⚠️ Не вдалось доставити юзеру (заблокував бота?): {error}",
+        "ago_min": "{m} хв",
+        "ago_hour": "{h} год {m} хв",
         "user_got_sub": "💎 Тобі видано підписку «{plan}» до <b>{until}</b> UTC. Гарної торгівлі!",
     },
     "ru": {
@@ -207,6 +251,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "signal_dir_sell": "🔴 Направление: <b>SELL</b>",
         "signal_tf": "🕐 Таймфрейм: <b>{tf}</b>",
         "signal_exp": "⏱ Экспирация: <b>{minutes} мин</b>",
+        "signal_quality": "⚡ Качество сигнала: <b>{quality}%</b>\n{bar}",
         "signal_reasons": "📝 Причина входа:",
         "signal_left": "🎯 Осталось сессий сегодня: <b>{left}/{limit}</b>",
         "btn_open_trade": "🎯 Открыть сделку",
@@ -231,6 +276,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_denied": "🚫 Эта команда не для тебя.",
         "admin_title": "🛠 <b>Админ-панель</b>",
         "admin_stats": (
+            "🔥 В очереди 99 Signal: <b>{queue}</b>\n"
             "👥 Пользователей: <b>{users}</b> (за сутки +{new_24h})\n"
             "💎 С активной подпиской: <b>{active_subs}</b>\n"
             "📨 Запросов всего: <b>{requests}</b> (за сутки {requests_24h})\n"
@@ -260,7 +306,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_user_card": (
             "👤 <b>{name}</b>\n"
             "🆔 <code>{user_id}</code>\n"
-            "🌐 Язык: {lang}\n"
+            "🌐 Язык: {user_lang}\n"
             "📨 Запросов съедено: <b>{requests}</b>\n"
             "🎯 Сегодня: <b>{used}/{limit}</b>\n"
             "💎 Подписка: <b>{sub}</b>"
@@ -277,11 +323,53 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_btn_unban": "✅ Разблокировать",
         "admin_search_prompt": "Пришли ID, @ник или часть имени:",
         "admin_ssid_prompt": (
-            "Пришли новый SSID Pocket Option одним сообщением.\n"
-            "Он лежит в localStorage страницы после входа в демо-аккаунт."
+            "🔑 Пришли <b>cookies</b> Pocket Option — файлом или текстом "
+            "(Cookie-Editor → Export → JSON). Тогда бот сам будет обновлять ключ, заходить на сайт не нужно.\n\n"
+            "Или старый способ — кадр <code>42[\"auth\",...]</code> из DevTools (протухает за несколько дней).\n\n"
+            "Сообщение с ключом бот сразу удалит из чата."
         ),
         "admin_ssid_saved": "✅ Сессия Pocket Option обновлена.",
+        "admin_ids_usage": "👮 Админы: <code>{ids}</code>\n\nДобавить: <code>/addadmin ID</code>\nУбрать: <code>/deladmin ID</code>",
+        "admin_added": "✅ <code>{user_id}</code> теперь админ. Пусть нажмёт /start в боте, чтобы получать уведомления.",
+        "admin_removed": "✅ <code>{user_id}</code> больше не админ.",
+        "admin_is_owner": "⚠️ <code>{user_id}</code> задан в настройках сервера (ADMIN_IDS) — из бота его не убрать.",
+        "admin_cookies_checking": "⏳ Получил {n} cookies, проверяю вход в Pocket Option…",
+        "admin_cookies_ok": (
+            "✅ <b>Cookies работают.</b> Ключ получен, {asset}: {n} свечей, источник — <b>{backend}</b>.\n\n"
+            "Дальше бот сам обновляет ключ каждые 6 часов и каждый раз, когда брокер его отклонит."
+        ),
+        "admin_key_bad": "❌ Не получилось: {error}\n\nСтарый ключ остался без изменений.",
+        "po_alert": (
+            "🔑 <b>Pocket Option: не удалось обновить ключ</b>\n\n"
+            "Причина: {reason}\n\n"
+            "Залогинься в Pocket Option, выгрузи cookies заново (Cookie-Editor → Export) "
+            "и пришли их в /admin → 🔑. Пока что сигналы могут не работать."
+        ),
         "admin_sub_none": "нет",
+        "s99_accepted": "🔥 <b>99 SIGNAL</b>\n\n{sep}\n\n✅ <b>Запрос принят!</b>\n\n👨‍💻 Аналитик уже вручную разбирает рынок и ищет самую сильную точку входа дня.\n\n⏳ Сигнал придёт сюда в течение <b>1–5 часов</b>.\n🔔 Не отключай уведомления: бот пришлёт сигнал, как только аналитик его выдаст.\n\n{sep}\n\n🧾 Запрос <b>№{request_id}</b> · {time} UTC",
+        "s99_waiting": "⏳ <b>Твой запрос №{request_id} уже в работе.</b>\n\nАналитик пришлёт сигнал в течение 1–5 часов с момента запроса ({time} UTC).",
+        "s99_manual_badge": "🔥 <b>99 SIGNAL</b> — от аналитика",
+        "s99_comment": "💬 <b>Комментарий аналитика:</b>",
+        "s99_act_now": "⚡ Открывай сделку сразу: сигнал актуален несколько минут.",
+        "s99_rejected": "😔 Сегодня аналитик не нашёл для тебя входа достаточного качества.\n\nПопытка возвращена — нажми 🔥 99 Signal ещё раз, когда удобно.",
+        "admin_btn_queue": "🔥 Очередь 99 Signal ({n})",
+        "admin_queue_title": "🔥 <b>Очередь 99 Signal</b> — ждут {n}",
+        "admin_queue_empty": "🔥 Очередь 99 Signal пуста.",
+        "admin_new_99": "🔔 <b>Новый запрос 99 Signal</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запрос №{request_id}\n📋 В очереди всего: <b>{n}</b>\n\nЮзеру обещан сигнал в течение 1–5 часов.",
+        "admin_btn_issue": "✍️ Выдать сигнал",
+        "admin_99_card": "🔥 <b>Запрос №{request_id}</b>\n\n👤 {name} · <code>{user_id}</code>\n⏳ Ждёт: <b>{waited}</b>\n\n{step}",
+        "admin_99_step_asset": "1️⃣ Выбери актив:",
+        "admin_99_step_dir": "📊 {asset}\n\n2️⃣ Направление:",
+        "admin_99_step_tf": "📊 {asset} · {direction}\n\n3️⃣ Экспирация:",
+        "admin_99_step_comment": "📊 {asset} · {direction} · {tf}\n\n4️⃣ Пришли комментарий (причину входа) одним сообщением — или жми «Без комментария».",
+        "admin_btn_no_comment": "➡️ Без комментария",
+        "admin_btn_reject": "❌ Отклонить (вернуть попытку)",
+        "admin_99_sent": "✅ Сигнал №{request_id} отправлен {name}: {asset} {direction} {tf}.",
+        "admin_99_closed": "ℹ️ Запрос №{request_id} уже закрыт.",
+        "admin_99_rejected": "✅ Запрос №{request_id} отклонён, попытка юзеру возвращена.",
+        "admin_99_undelivered": "⚠️ Не удалось доставить юзеру (заблокировал бота?): {error}",
+        "ago_min": "{m} мин",
+        "ago_hour": "{h} ч {m} мин",
         "user_got_sub": "💎 Тебе выдана подписка «{plan}» до <b>{until}</b> UTC. Хорошей торговли!",
     },
 }

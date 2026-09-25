@@ -14,6 +14,9 @@ from data.market import Candle
 BUY = "BUY"
 SELL = "SELL"
 
+# сума ваг усіх правил однієї сторони: тренд 2.0 + відкат 1.2 + RSI 1.0 + обсяг 0.8 + рівень 0.6
+MAX_SCORE = 5.6
+
 
 @dataclass(slots=True)
 class Signal:
@@ -24,6 +27,16 @@ class Signal:
     ema_fast: float = 0.0
     ema_slow: float = 0.0
     level: float = 0.0
+    against: float = 0.0
+
+    @property
+    def quality(self) -> int:
+        """Якість у відсотках: яка частка правил підтвердила вхід, мінус половина протилежних.
+
+        Це сила збігу індикаторів, а не ймовірність виграшу.
+        """
+        net = self.score - self.against * 0.5
+        return max(1, min(99, round(net / MAX_SCORE * 100)))
 
 
 def ema(values: list[float], period: int) -> list[float]:
@@ -156,6 +169,7 @@ def analyze(candles: list[Candle], digits: int = 5, min_score: float = 3.0) -> S
             ema_fast=fast[-1],
             ema_slow=slow[-1],
             level=level,
+            against=round(sell, 2),
         )
     if sell > buy and sell >= min_score:
         reasons_sell.append(("reason_continuation_down", {}))
@@ -167,6 +181,7 @@ def analyze(candles: list[Candle], digits: int = 5, min_score: float = 3.0) -> S
             ema_fast=fast[-1],
             ema_slow=slow[-1],
             level=level,
+            against=round(buy, 2),
         )
     return None
 

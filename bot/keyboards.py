@@ -1,6 +1,7 @@
 """Клавіатури бота — один в один зі скрінів оригіналу, але з «Підписки» замість «Про бота»."""
 from __future__ import annotations
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -41,8 +42,15 @@ def main_menu(lang: str, links: dict[str, str]) -> InlineKeyboardMarkup:
     third.append(InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="menu:lang"))
     builder.row(*third)
 
-    builder.row(InlineKeyboardButton(text=t(lang, "btn_99"), callback_data="menu:99"))
-    builder.row(InlineKeyboardButton(text=t(lang, "btn_start_session"), callback_data="menu:session"))
+    # кольорові кнопки (Bot API 9.4+): золотого в Telegram нема — лише червоний/зелений/синій
+    builder.row(
+        InlineKeyboardButton(text=t(lang, "btn_99"), callback_data="menu:99", style=ButtonStyle.DANGER)
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=t(lang, "btn_start_session"), callback_data="menu:session", style=ButtonStyle.SUCCESS
+        )
+    )
     return builder.as_markup()
 
 

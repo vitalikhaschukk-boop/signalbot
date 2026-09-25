@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS sub_log (
     days     INTEGER,
     ts       TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS s99_queue (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    admin_id   INTEGER,
+    asset      TEXT,
+    direction  TEXT,
+    timeframe  INTEGER,
+    done_at    TEXT
+);
 """
 
 SCHEMA_PG = """
@@ -94,6 +105,17 @@ CREATE TABLE IF NOT EXISTS sub_log (
     plan     TEXT,
     days     INTEGER,
     ts       TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS s99_queue (
+    id         BIGSERIAL PRIMARY KEY,
+    user_id    BIGINT NOT NULL,
+    created_at TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    admin_id   BIGINT,
+    asset      TEXT,
+    direction  TEXT,
+    timeframe  INTEGER,
+    done_at    TEXT
 );
 """
 
@@ -359,6 +381,49 @@ class Database:
             (user_id,),
         )
 
+    # ---------------- 99 Signal: черга до аналітика ----------------
+    def pending_99(self, user_id: int) -> dict | None:
+        rows = self.driver.query(
+            "SELECT * FROM s99_queue WHERE user_id = ? AND status = 'pending' ORDER BY id LIMIT 1",
+            (user_id,),
+        )
+        return dict(rows[0]) if rows else None
+
+    def request_99(self, user_id: int) -> int | None:
+        """Поставити юзера в чергу. None — сьогоднішній 99 Signal уже використано."""
+        if not self.consume_99(user_id):
+            return None
+        rows = self.driver.query(
+            "INSERT INTO s99_queue (user_id, created_at) VALUES (?, ?) RETURNING id",
+            (user_id, _iso(now())),
+        )
+        return int(rows[0]["id"])
+
+    def get_99(self, request_id: int) -> dict | None:
+        rows = self.driver.query("SELECT * FROM s99_queue WHERE id = ?", (request_id,))
+        return dict(rows[0]) if rows else None
+
+    def list_99_pending(self) -> list[dict]:
+        rows = self.driver.query("SELECT * FROM s99_queue WHERE status = 'pending' ORDER BY id")
+        return [dict(row) for row in rows]
+
+    def close_99(
+        self,
+        request_id: int,
+        status: str,
+        admin_id: int,
+        asset: str | None = None,
+        direction: str | None = None,
+        timeframe: int | None = None,
+    ) -> bool:
+        """Закрити запит. False — його вже закрив інший адмін (двоє не видадуть двічі)."""
+        rows = self.driver.query(
+            "UPDATE s99_queue SET status = ?, admin_id = ?, asset = ?, direction = ?, "
+            "timeframe = ?, done_at = ? WHERE id = ? AND status = 'pending' RETURNING id",
+            (status, admin_id, asset, direction, timeframe, _iso(now()), request_id),
+        )
+        return bool(rows)
+
     # ---------------- адмінка ----------------
     def list_users(self, offset: int = 0, limit: int = 8, search: str = "") -> list[User]:
         if search:
@@ -395,6 +460,7 @@ class Database:
         one_day = _iso(now() - timedelta(days=1))
         one = lambda sql, params=(): int(self.driver.query(sql, params)[0]["n"])  # noqa: E731
         return {
+            "queue": one("SELECT COUNT(*) AS n FROM s99_queue WHERE status = 'pending'"),
             "users": one("SELECT COUNT(*) AS n FROM users"),
             "active_subs": one("SELECT COUNT(*) AS n FROM users WHERE sub_until > ?", (_iso(now()),)),
             "requests": one("SELECT COUNT(*) AS n FROM requests"),

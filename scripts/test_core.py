@@ -167,6 +167,78 @@ def test_signals() -> None:
     best = pick_best({"A": flat_candles(), "B": trend_candles(1)}, {"A": 5, "B": 5})
     check("pick_best бере актив із сигналом", best is not None and best[0] == "B")
     check("pick_best на пустому — None", pick_best({"A": flat_candles()}, {"A": 5}) is None)
+    check("якість у межах 1..99", up is not None and 1 <= up.quality <= 99, str(up and up.quality))
+
+
+def test_po_cookies() -> None:
+    print("\n[po cookies]")
+    from data.po_session import looks_like_cookies, parse_cookies
+
+    editor = '[{"domain":".pocketoption.com","name":"PHPSESSID","value":"abc"},' \
+             '{"domain":".google.com","name":"_ga","value":"x"}]'
+    check("Cookie-Editor JSON", [c["name"] for c in parse_cookies(editor)] == ["PHPSESSID"])
+    netscape = "# Netscape\n#HttpOnly_.pocketoption.com\tTRUE\t/\tTRUE\t0\tautologin\tzzz\n"
+    check("cookies.txt", parse_cookies(netscape)[0]["name"] == "autologin")
+    check("рядок a=b; c=d", len(parse_cookies("a=1; b=2")) == 2)
+    check("cookies розпізнано", looks_like_cookies(editor) and looks_like_cookies("a=1; b=2"))
+    check("кадр auth — не cookies", not looks_like_cookies('42["auth",{"session":"x"}]'))
+    check("голий SSID — не cookies", not looks_like_cookies("9ocbmdgd25ek1hs25i06l7ttct"))
+    backup = '{"url":"https://www.hotcleaner.com/x","version":2,"data":"QRP+/=a;b"}'
+    check("бекап Cookie-Editor йде в розбір cookies", looks_like_cookies(backup))
+    try:
+        parse_cookies(backup)
+        check("зашифрований бекап відбито з поясненням", False)
+    except PocketUnavailable as exc:
+        check("зашифрований бекап відбито з поясненням", "зашифрований" in str(exc) and "QRP" not in str(exc))
+    try:
+        parse_cookies('[{"domain":".google.com","name":"_ga","value":"x"}]')
+        check("чужий домен відбито", False)
+    except PocketUnavailable:
+        check("чужий домен відбито", True)
+
+
+def test_99_queue() -> None:
+    """99 Signal видає аналітик: черга, один запит на добу, двічі не закривається."""
+    print("\n[99 черга]")
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "q.db")
+        db.upsert_user(7, "u", "U")
+        rid = db.request_99(7)
+        check("запит став у чергу", rid is not None and db.pending_99(7)["id"] == rid)
+        check("другий запит за добу не створюється", db.request_99(7) is None)
+        check("черга видна адміну", [r["id"] for r in db.list_99_pending()] == [rid])
+        check("stats рахує чергу", db.stats()["queue"] == 1)
+        check("закриття sent", db.close_99(rid, "sent", 1, "EURUSD_otc", "BUY", 300))
+        check("повторне закриття відбито", not db.close_99(rid, "sent", 2, "EURUSD_otc", "SELL", 60))
+        check("черга порожня", db.list_99_pending() == [] and db.pending_99(7) is None)
+        check("збережено актив і напрямок", db.get_99(rid)["direction"] == "BUY")
+        db.reset_99(7)
+        rid2 = db.request_99(7)
+        check("після відмови/ресету можна знову", rid2 is not None and rid2 != rid)
+        db.close()
+
+
+def test_admin_card() -> None:
+    """Картка юзера в адмінці — з неї видається підписка; падала на подвійному lang."""
+    print("\n[admin]")
+    from types import SimpleNamespace
+
+    from bot import admin
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "a.db")
+        db.upsert_user(1, "boss", "Boss")
+        db.upsert_user(2, None, "Вася <3 & co")
+        db.set_lang(2, "ru")
+        admin.app = SimpleNamespace(config=SimpleNamespace(admin_ids={1}, daily_sessions=3), db=db)
+        for lang in LANGS:
+            text, markup = admin._user_card(lang, 2)
+            grants = [b.callback_data for row in markup.inline_keyboard for b in row
+                      if (b.callback_data or "").startswith("adm:grant:2:")]
+            check(f"картка юзера відкривається ({lang})", "ru" in text and len(grants) == 3)
+            check(f"HTML з імені екранується ({lang})", "&lt;3 &amp; co" in text, text)
+        admin.app = None
+        db.close()
 
 
 def test_chart() -> None:
@@ -233,6 +305,9 @@ if __name__ == "__main__":
     test_db()
     test_99_and_migration()
     test_signals()
+    test_99_queue()
+    test_po_cookies()
+    test_admin_card()
     test_chart()
     test_i18n()
     test_market()

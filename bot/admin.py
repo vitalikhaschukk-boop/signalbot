@@ -21,7 +21,7 @@ from bot.keyboards import TIMEFRAMES, signal_menu
 from core.chart import render_signal
 from core.db import now
 from core.i18n import t
-from data import po_session
+from data import po_diag, po_session
 from data.market import ASSETS, timeframe_label
 from data.pocket import PocketUnavailable
 
@@ -186,6 +186,18 @@ async def cmd_admin(message: Message) -> None:
         await message.answer(t(lang, "admin_denied"))
         return
     await message.answer(_home_text(lang), reply_markup=_home_markup(lang))
+
+
+@router.message(Command("podiag"))
+async def cmd_podiag(message: Message) -> None:
+    """Звідки бот бачить Pocket Option: DNS → TCP → TLS → HTTP по дзеркалах."""
+    assert message.from_user is not None
+    if not _is_admin(message.from_user.id):
+        await message.answer(t(_lang(message.from_user.id), "admin_denied"))
+        return
+    status = await message.answer("🩺 Pocket Option: перевіряю доступ із сервера…")
+    lines = await po_diag.run()
+    await status.edit_text("🩺 <b>Pocket Option з сервера</b>\n\n" + "\n\n".join(html.escape(x) for x in lines))
 
 
 @router.message(Command("addadmin", "deladmin"))

@@ -182,7 +182,7 @@ def test_po_cookies() -> None:
     check("рядок a=b; c=d", len(parse_cookies("a=1; b=2")) == 2)
     check("cookies розпізнано", looks_like_cookies(editor) and looks_like_cookies("a=1; b=2"))
     check("кадр auth — не cookies", not looks_like_cookies('42["auth",{"session":"x"}]'))
-    check("голий SSID — не cookies", not looks_like_cookies("9ocbmdgd25ek1hs25i06l7ttct"))
+    check("голий SSID — не cookies", not looks_like_cookies("abcdefghij0123456789klmnop"))
     backup = '{"url":"https://www.hotcleaner.com/x","version":2,"data":"QRP+/=a;b"}'
     check("бекап Cookie-Editor йде в розбір cookies", looks_like_cookies(backup))
     try:

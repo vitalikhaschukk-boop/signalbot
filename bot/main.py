@@ -20,7 +20,15 @@ from aiogram.filters import CommandStart  # noqa: E402
 from aiogram.types import BufferedInputFile, CallbackQuery, Message  # noqa: E402
 
 from bot import admin as admin_module  # noqa: E402
-from bot.keyboards import back_menu, language_menu, main_menu, signal_menu, timeframe_menu  # noqa: E402
+from bot.keyboards import (  # noqa: E402
+    BOTTOM_ACTIONS,
+    back_menu,
+    bottom_menu,
+    language_menu,
+    main_menu,
+    signal_menu,
+    timeframe_menu,
+)
 from core.chart import render_signal  # noqa: E402
 from core.config import Config  # noqa: E402
 from core.db import Database, User  # noqa: E402
@@ -189,10 +197,46 @@ async def cmd_start(message: Message) -> None:
     if user.banned:
         await message.answer(t(user.lang, "banned"))
         return
+    await message.answer(t(user.lang, "kb_ready"), reply_markup=bottom_menu(user.lang))
     await message.answer(
         profile_block(user, app.config, user.lang),
         reply_markup=main_menu(user.lang, app.links()),
     )
+
+
+@router.message(F.text.func(lambda text: text in BOTTOM_ACTIONS))
+async def bottom_button(message: Message) -> None:
+    """Кнопки нижнього меню роблять те саме, що й інлайн-меню, але новим повідомленням."""
+    assert app is not None and message.from_user is not None and message.text is not None
+    user = app.user_or_create(message.from_user)
+    if user.banned:
+        await message.answer(t(user.lang, "banned"))
+        return
+    action = BOTTOM_ACTIONS[message.text]
+    if action == "home":
+        await message.answer(
+            profile_block(user, app.config, user.lang), reply_markup=main_menu(user.lang, app.links())
+        )
+        return
+    if action == "subs":
+        text, markup = _subs_screen(user)
+        await message.answer(text, reply_markup=markup)
+        return
+    if action == "session":
+        result = _session_screen(user)
+        if isinstance(result, str):
+            await message.answer(result, reply_markup=back_menu(user.lang))
+        else:
+            await message.answer(result[0], reply_markup=result[1])
+        return
+    result = _request_99_screen(user)
+    if isinstance(result, str):
+        await message.answer(result, reply_markup=back_menu(user.lang))
+        return
+    text, markup, request_id = result
+    await message.answer(text, reply_markup=markup)
+    if request_id:
+        await admin_module.notify_new_99(message.bot, request_id)
 
 
 @router.callback_query(F.data == "menu:home")
@@ -219,6 +263,8 @@ async def cb_set_lang(call: CallbackQuery) -> None:
     lang = call.data.split(":", 1)[1]
     app.db.set_lang(call.from_user.id, lang)
     await call.answer(t(lang, "lang_saved"))
+    if call.message is not None:
+        await call.message.answer(t(lang, "lang_saved"), reply_markup=bottom_menu(lang))
     user = app.user_or_create(call.from_user)
     await _replace(
         call,
@@ -231,6 +277,12 @@ async def cb_set_lang(call: CallbackQuery) -> None:
 async def cb_subs(call: CallbackQuery) -> None:
     assert app is not None and call.from_user is not None
     user = app.user_or_create(call.from_user)
+    text, markup = _subs_screen(user)
+    await _replace(call, text, markup)
+
+
+def _subs_screen(user: User):
+    assert app is not None
     text = "\n\n".join(
         [
             t(user.lang, "subs_title"),
@@ -244,29 +296,30 @@ async def cb_subs(call: CallbackQuery) -> None:
             ),
         ]
     )
-    await _replace(call, text, back_menu(user.lang))
+    return text, back_menu(user.lang)
 
 
 @router.callback_query(F.data == "menu:session")
 async def cb_session(call: CallbackQuery) -> None:
     assert app is not None and call.from_user is not None
     user = app.user_or_create(call.from_user)
+    result = _session_screen(user)
+    if isinstance(result, str):
+        await call.answer(result, show_alert=True)
+        return
+    await _replace(call, *result)
+
+
+def _session_screen(user: User):
+    """Екран вибору таймфрейму або текст відмови (бан / нема підписки / ліміт)."""
+    assert app is not None
     if user.banned:
-        await call.answer(t(user.lang, "banned"), show_alert=True)
-        return
+        return t(user.lang, "banned")
     if not user.sub_active:
-        await call.answer(t(user.lang, "sub_required"), show_alert=True)
-        return
+        return t(user.lang, "sub_required")
     if user.sessions_left(app.config.daily_sessions) <= 0:
-        await call.answer(
-            t(user.lang, "no_sessions", limit=app.config.daily_sessions), show_alert=True
-        )
-        return
-    await _replace(
-        call,
-        t(user.lang, "tf_title") + "\n\n" + t(user.lang, "tf_body"),
-        timeframe_menu(user.lang),
-    )
+        return t(user.lang, "no_sessions", limit=app.config.daily_sessions)
+    return t(user.lang, "tf_title") + "\n\n" + t(user.lang, "tf_body"), timeframe_menu(user.lang)
 
 
 @router.callback_query(F.data.startswith("tf:"))
@@ -282,41 +335,42 @@ async def cb_timeframe(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:99")
 async def cb_99(call: CallbackQuery) -> None:
-    """99 Signal видає аналітик вручну: юзер стає в чергу, адміни отримують сповіщення."""
+    """99 Signal видає адмін вручну: юзер стає в чергу, адміни отримують сповіщення."""
     assert app is not None and call.from_user is not None
     user = app.user_or_create(call.from_user)
+    result = _request_99_screen(user)
+    if isinstance(result, str):
+        await call.answer(result, show_alert=True)
+        return
+    text, markup, request_id = result
+    await _replace(call, text, markup)
+    if request_id:
+        await admin_module.notify_new_99(call.bot, request_id)
+
+
+def _request_99_screen(user: User):
+    """(текст, кнопки, id нового запиту або None якщо вже чекає) або текст відмови."""
+    assert app is not None
     if user.banned:
-        await call.answer(t(user.lang, "banned"), show_alert=True)
-        return
+        return t(user.lang, "banned")
     if not user.sub_active:
-        await call.answer(t(user.lang, "sub_required"), show_alert=True)
-        return
+        return t(user.lang, "sub_required")
     waiting = app.db.pending_99(user.user_id)
     if waiting:
         created = _parse_ts(waiting["created_at"])
-        await call.answer()
-        await _replace(
-            call,
-            t(user.lang, "s99_waiting", request_id=waiting["id"], time=created.strftime("%H:%M")),
-            back_menu(user.lang),
-        )
-        return
+        text = t(user.lang, "s99_waiting", request_id=waiting["id"], time=created.strftime("%H:%M"))
+        return text, back_menu(user.lang), None
     request_id = app.db.request_99(user.user_id)
     if request_id is None:
-        await call.answer(t(user.lang, "s99_used"), show_alert=True)
-        return
-    await _replace(
-        call,
-        t(
-            user.lang,
-            "s99_accepted",
-            sep="—" * 18,
-            request_id=request_id,
-            time=_parse_ts(app.db.get_99(request_id)["created_at"]).strftime("%H:%M"),
-        ),
-        back_menu(user.lang),
+        return t(user.lang, "s99_used")
+    text = t(
+        user.lang,
+        "s99_accepted",
+        sep="—" * 18,
+        request_id=request_id,
+        time=_parse_ts(app.db.get_99(request_id)["created_at"]).strftime("%H:%M"),
     )
-    await admin_module.notify_new_99(call.bot, request_id)
+    return text, back_menu(user.lang), request_id
 
 
 def _parse_ts(value: str) -> datetime:
@@ -425,7 +479,11 @@ async def _load_market(timeframe: int, limit: int = 0):
     market = {}
     digits = {}
     for symbol in symbols:
-        candles = await app.source.candles(symbol, timeframe, count=120)
+        try:
+            candles = await app.source.candles(symbol, timeframe, count=120)
+        except PocketUnavailable as exc:  # один актив не віддав — решта сесії живе
+            log.info("актив %s пропущено: %s", symbol, exc)
+            continue
         if len(candles) >= 40:
             market[symbol] = candles
             digits[symbol] = ASSETS_BY_SYMBOL[symbol].digits
@@ -463,6 +521,33 @@ async def _replace(call: CallbackQuery, text: str, markup) -> None:
         await message.answer(text, reply_markup=markup)
 
 
+async def _set_commands(bot: Bot) -> None:
+    """Кнопка «Меню» біля поля вводу: /start усім, адмінам ще й адмін-команди."""
+    from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+
+    try:
+        await bot.set_my_commands(
+            [BotCommand(command="start", description=t("uk", "cmd_start"))], scope=BotCommandScopeDefault()
+        )
+        await bot.set_my_commands(
+            [BotCommand(command="start", description=t("ru", "cmd_start"))],
+            scope=BotCommandScopeDefault(),
+            language_code="ru",
+        )
+        for admin_id in admin_module.admin_ids():
+            await bot.set_my_commands(
+                [
+                    BotCommand(command="start", description=t("uk", "cmd_start")),
+                    BotCommand(command="admin", description="🛠 Адмін-панель"),
+                    BotCommand(command="podiag", description="🩺 Перевірка Pocket Option"),
+                    BotCommand(command="addadmin", description="👮 Адміни"),
+                ],
+                scope=BotCommandScopeChat(chat_id=admin_id),
+            )
+    except Exception as exc:  # noqa: BLE001 - адмін ще не писав боту тощо
+        log.info("команди меню: %s", exc)
+
+
 async def main() -> None:
     global app
     config = Config.load()
@@ -473,6 +558,7 @@ async def main() -> None:
 
     bot = Bot(config.token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     app.bot = bot
+    await _set_commands(bot)
     keeper = asyncio.create_task(app.keep_po_fresh())
     dispatcher = Dispatcher()
     dispatcher.include_router(admin_module.router)

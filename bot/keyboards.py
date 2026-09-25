@@ -2,10 +2,20 @@
 from __future__ import annotations
 
 from aiogram.enums import ButtonStyle
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.i18n import t
+from core.i18n import LANGS
+
+# нижнє (постійне) меню: ключ тексту -> дія
+_BOTTOM = (("kb_home", "home"), ("btn_start_session", "session"), ("btn_99", "99"), ("btn_subs", "subs"))
+BOTTOM_ACTIONS = {t(lang, key): action for lang in LANGS for key, action in _BOTTOM}
 
 TIMEFRAMES: tuple[tuple[int, str], tuple[int, str], tuple[int, str], tuple[int, str]] = (
     (60, "tf_1"),
@@ -85,3 +95,15 @@ def signal_menu(lang: str, pocket_url: str, repeat: str = "menu:session") -> Inl
     builder.row(InlineKeyboardButton(text=t(lang, "btn_new_session"), callback_data=repeat))
     builder.row(InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="menu:home"))
     return builder.as_markup()
+
+
+def bottom_menu(lang: str) -> ReplyKeyboardMarkup:
+    """Постійні кнопки під полем вводу — щоб не гортати переписку й не писати /start."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_start_session")), KeyboardButton(text=t(lang, "btn_99"))],
+            [KeyboardButton(text=t(lang, "kb_home")), KeyboardButton(text=t(lang, "btn_subs"))],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )

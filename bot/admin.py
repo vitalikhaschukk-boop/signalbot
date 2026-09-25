@@ -17,7 +17,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards import TIMEFRAMES, signal_menu
+from bot.keyboards import BOTTOM_ACTIONS, TIMEFRAMES, signal_menu
 from core.chart import render_signal
 from core.db import now
 from core.i18n import t
@@ -595,7 +595,11 @@ async def _save_po_key(message: Message, lang: str, value: str) -> None:
     )
 
 
-@router.message(F.text, lambda message: message.from_user and message.from_user.id in _pending)
+@router.message(
+    F.text,
+    lambda message: message.from_user and message.from_user.id in _pending
+    and message.text not in BOTTOM_ACTIONS,  # кнопка нижнього меню — не відповідь на запит адмінки
+)
 async def admin_text_input(message: Message) -> None:
     assert message.from_user is not None
     lang = _lang(message.from_user.id)

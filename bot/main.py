@@ -8,6 +8,7 @@ import json
 import logging
 import random
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -45,6 +46,8 @@ router = Router()
 
 # як часто фоном оновлювати ключ Pocket Option через cookies
 PO_REFRESH_EVERY = timedelta(hours=6)
+# скільки максимум сканувати активи в одній сесії, секунд (далі — беремо, що встигли)
+SCAN_BUDGET = 20.0
 
 PLAN_DEFAULTS = {
     "plan1": "Standard — 3 сигнали/день",
@@ -395,6 +398,11 @@ async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int) ->
     except PocketUnavailable as exc:
         log.warning("немає даних: %s", exc)
         await message.edit_text(t(user.lang, "data_error"), reply_markup=back_menu(user.lang))
+        await app.alert_po_failure(str(exc))  # другу — «онови ключ», не частіше разу на 6 год
+        return
+    except Exception:  # noqa: BLE001 - що б не сталось, юзер не має висіти на екрані сканера
+        log.exception("сесія впала на завантаженні ринку")
+        await message.edit_text(t(user.lang, "data_error"), reply_markup=back_menu(user.lang))
         return
 
     best = pick_best(market, digits)
@@ -479,10 +487,15 @@ async def _load_market(timeframe: int, limit: int = 0):
         symbols = symbols[:limit]
     market = {}
     digits = {}
+    deadline = time.monotonic() + SCAN_BUDGET
     for symbol in symbols:
+        if market and time.monotonic() > deadline:
+            break  # вже є з чого вибирати — не тримаємо юзера на екрані сканера
         try:
             candles = await app.source.candles(symbol, timeframe, count=120)
-        except PocketUnavailable as exc:  # один актив не віддав — решта сесії живе
+        except PocketUnavailable as exc:
+            if not market:
+                raise  # перший же актив не відповів — це звʼязок/ключ, а не один актив
             log.info("актив %s пропущено: %s", symbol, exc)
             continue
         if len(candles) >= 40:

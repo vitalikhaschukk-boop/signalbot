@@ -43,8 +43,8 @@ HEADERS = {
     ),
 }
 
-CONNECT_TIMEOUT = 15.0
-HISTORY_TIMEOUT = 15.0
+CONNECT_TIMEOUT = 10.0
+HISTORY_TIMEOUT = 8.0
 
 
 class PocketUnavailable(RuntimeError):
@@ -164,7 +164,7 @@ class PocketSource:
             await asyncio.wait_for(self._ready, timeout=CONNECT_TIMEOUT)
         except asyncio.TimeoutError as exc:
             await self._teardown()
-            raise PocketUnavailable("брокер не відкрив канал за 15с") from exc
+            raise PocketUnavailable(f"брокер не відкрив канал за {CONNECT_TIMEOUT:.0f}с") from exc
         except PocketUnavailable:
             await self._teardown()
             raise

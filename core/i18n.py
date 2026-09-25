@@ -163,10 +163,11 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "admin_key_bad": "❌ Не вийшло: {error}\n\nСтарий ключ лишився без змін.",
         "po_alert": (
-            "🔑 <b>Pocket Option: не вдалось оновити ключ</b>\n\n"
+            "🔑 <b>Pocket Option не відповідає — схоже, ключ протух</b>\n\n"
             "Причина: {reason}\n\n"
-            "Залогінься в Pocket Option, вивантаж cookies заново (Cookie-Editor → Export) "
-            "і надішли їх у /admin → 🔑. Поки що сигнали можуть не працювати."
+            "Поки ключа нема, юзери отримують «немає зв'язку з ринком».\n"
+            "Онови: pocketoption.com → демо-термінал → F12 → Network → Socket → F5 → "
+            "socket.io → Messages → <code>42[\"auth\",...]</code> → Copy message → /admin → 🔑."
         ),
         "admin_sub_none": "немає",
         "s99_accepted": "🔥 <b>TOP SIGNAL</b>\n\n{sep}\n\n✅ <b>Запит прийнято!</b>\n\n🔬 Почався глибокий аналіз ринку: перебираємо активи й таймфрейми, щоб знайти найсильнішу точку входу дня.\n\n⏳ Сигнал прийде сюди протягом <b>1–5 годин</b>.\n🔔 Не вимикай сповіщення: сигнал прийде сюди, щойно аналіз завершиться.\n\n{sep}\n\n🧾 Запит <b>№{request_id}</b> · {time} UTC",
@@ -348,10 +349,11 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "admin_key_bad": "❌ Не получилось: {error}\n\nСтарый ключ остался без изменений.",
         "po_alert": (
-            "🔑 <b>Pocket Option: не удалось обновить ключ</b>\n\n"
+            "🔑 <b>Pocket Option не отвечает — похоже, ключ протух</b>\n\n"
             "Причина: {reason}\n\n"
-            "Залогинься в Pocket Option, выгрузи cookies заново (Cookie-Editor → Export) "
-            "и пришли их в /admin → 🔑. Пока что сигналы могут не работать."
+            "Пока ключа нет, юзеры получают «нет связи с рынком».\n"
+            "Обнови: pocketoption.com → демо-терминал → F12 → Network → Socket → F5 → "
+            "socket.io → Messages → <code>42[\"auth\",...]</code> → Copy message → /admin → 🔑."
         ),
         "admin_sub_none": "нет",
         "s99_accepted": "🔥 <b>TOP SIGNAL</b>\n\n{sep}\n\n✅ <b>Запрос принят!</b>\n\n🔬 Начался глубокий анализ рынка: перебираем активы и таймфреймы, чтобы найти самую сильную точку входа дня.\n\n⏳ Сигнал придёт сюда в течение <b>1–5 часов</b>.\n🔔 Не отключай уведомления: сигнал придёт сюда, как только анализ завершится.\n\n{sep}\n\n🧾 Запрос <b>№{request_id}</b> · {time} UTC",

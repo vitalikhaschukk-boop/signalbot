@@ -474,7 +474,7 @@ async def _send_99(
                     timeframe_label=timeframe_label(seconds),
                     digits=asset.digits,
                     demo=app.demo_data,
-                    header="99 SIGNAL",
+                    header="TOP SIGNAL",
                     subtitle="Analyst Signal",
                 )
         except Exception as exc:  # noqa: BLE001 - без графіка сигнал все одно піде текстом

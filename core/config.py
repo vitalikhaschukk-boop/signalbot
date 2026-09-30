@@ -32,7 +32,8 @@ class Config:
     channel_url: str = ""
     trader_url: str = ""
     po_ref_url: str = ""
-    daily_sessions: int = 3
+    free_signals: int = 5   # сигналів на добу в безкоштовній підписці
+    vip_signals: int = 10   # сигналів на добу у VIP
     data_backend: str = "sim"
     po_ssid: str = ""
     db_path: Path = ROOT / "runtime" / "bot.db"
@@ -54,7 +55,8 @@ class Config:
             channel_url=_env("CHANNEL_URL"),
             trader_url=_env("TRADER_URL"),
             po_ref_url=_env("PO_REF_URL"),
-            daily_sessions=int(_env("DAILY_SESSIONS", "3") or 3),
+            free_signals=int(_env("FREE_SIGNALS", "5") or 5),
+            vip_signals=int(_env("VIP_SIGNALS", "10") or 10),
             data_backend=_env("DATA_BACKEND", "sim").lower(),
             po_ssid=_env("PO_SSID"),
             # Northflank/Neon/Railway називають цю змінну по-різному — беремо першу непорожню

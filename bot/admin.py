@@ -32,7 +32,7 @@ router = Router()
 app = None  # підставляє bot/main.py на старті
 
 PAGE_SIZE = 8
-PLANS = (("Standard", 30), ("VIP", 30), ("Trial", 3))
+PLANS = (("VIP", 30),)  # підписок дві: Безкоштовна (у всіх) і VIP, яку видає адмін
 
 # що адмін може міняти прямо з бота, без деплою
 EDITABLE = ("channel_url", "trader_url", "pocket_url", "training_url",
@@ -140,7 +140,7 @@ def _user_card(lang: str, user_id: int) -> tuple[str, object]:
     user = app.db.get_user(user_id)
     if user is None:
         return "—", _home_markup(lang)
-    limit = app.config.daily_sessions
+    limit = user.daily_limit(app.config.free_signals, app.config.vip_signals)
     sub = (
         f"{user.sub_plan or '—'} → {user.sub_until.strftime('%d.%m.%Y %H:%M')} UTC"
         if user.sub_active and user.sub_until
@@ -210,28 +210,30 @@ async def cmd_scan(message: Message, command: CommandObject) -> None:
         return
     minutes = int(command.args) if (command.args or "").strip().isdigit() else 1
     timeframe = max(1, minutes) * 60
-    status = await message.answer(f"🔎 Сканую всі активи на M{timeframe // 60} ({app.source.name})…")
-    lines = []
-    for asset in ALL_ASSETS:
+    status = await message.answer(f"🔎 Сканую пари, які зараз отримують юзери, M{timeframe // 60} ({app.source.name})…")
+
+    async def scan_one(asset) -> str:
         try:
             candles = await app.source.candles(asset.symbol, timeframe, count=120)
         except Exception as exc:  # noqa: BLE001
-            lines.append(f"❌ {asset.title}: {html.escape(str(exc))[:80]}")
-            continue
+            return f"❌ {asset.title}: {html.escape(str(exc))[:80]}"
         signal = analyze(candles, asset.digits, min_score=0.01)
         volume = sum(c.volume for c in candles[-10:])
         if signal is None:
-            lines.append(f"▫️ {asset.title}: 0 балів · {len(candles)} свічок · обсяг {volume:.0f}")
-            continue
+            return f"▫️ {asset.title}: 0 балів · {len(candles)} свічок · обсяг {volume:.0f}"
         fired = ", ".join(key.removeprefix("reason_") for key, _ in signal.reasons if "continuation" not in key)
         mark = "✅" if signal.score >= 3.0 else ("🟡" if signal.score >= 2.2 else "▫️")
-        lines.append(
+        return (
             f"{mark} {asset.title}: {signal.direction} {signal.score} (проти {signal.against}) · "
             f"{len(candles)} свічок · обсяг {volume:.0f} · {fired or '—'}"
         )
+
+    # лише те, що зараз бачать юзери (20 пар), і паралельно: 40 символів по черзі не влазили ні в час, ні в повідомлення
+    lines = await asyncio.gather(*(scan_one(asset) for asset in await app.source.assets()))
+    ok = sum(1 for line in lines if not line.startswith("❌"))
     await status.edit_text(
-        f"🔎 <b>Скан M{timeframe // 60}</b> ({app.source.name}) — ✅ ≥3.0 сигнал · 🟡 ≥2.2 запасний\n\n"
-        + "\n".join(lines)
+        f"🔎 <b>Скан M{timeframe // 60}</b> ({app.source.name}) — відповіли {ok}/{len(lines)} · "
+        f"✅ ≥3.0 сигнал · 🟡 ≥2.2 запасний\n\n" + "\n".join(lines)
     )
 
 

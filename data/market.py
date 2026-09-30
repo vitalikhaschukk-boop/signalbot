@@ -44,29 +44,27 @@ class Asset:
         return self.title.removesuffix(" OTC")
 
 
-ASSETS: tuple[Asset, ...] = (
-    Asset("EURUSD_otc", "EUR/USD OTC", "forex", 5),
-    Asset("GBPUSD_otc", "GBP/USD OTC", "forex", 5),
-    Asset("USDJPY_otc", "USD/JPY OTC", "forex", 3),
-    Asset("EURJPY_otc", "EUR/JPY OTC", "forex", 3),
-    Asset("AUDCAD_otc", "AUD/CAD OTC", "forex", 5),
-    Asset("USDCHF_otc", "USD/CHF OTC", "forex", 5),
-    Asset("BTCUSD_otc", "BTC/USD OTC", "crypto", 2),
-    Asset("ETHUSD_otc", "ETH/USD OTC", "crypto", 2),
-    Asset("XAUUSD_otc", "XAU/USD OTC", "metal", 2),
+# 20 валютних пар, які друг бачить у Pocket Option (його список від 2026-09-30).
+PAIRS: tuple[str, ...] = (
+    "EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "USD/CAD", "AUD/USD",
+    "EUR/GBP", "EUR/JPY", "EUR/CHF", "EUR/CAD", "EUR/AUD",
+    "GBP/AUD", "GBP/JPY", "GBP/CAD", "GBP/CHF",
+    "AUD/CHF", "AUD/CAD", "CAD/JPY", "CAD/CHF", "CHF/JPY",
 )
 
-# Звичайні (не OTC) пари Pocket Option — реальний ринок, торгуються лише коли відкритий форекс.
-# Крипта в PO тільки OTC, тому її тут нема.
-REGULAR: tuple[Asset, ...] = (
-    Asset("EURUSD", "EUR/USD", "forex", 5),
-    Asset("GBPUSD", "GBP/USD", "forex", 5),
-    Asset("USDJPY", "USD/JPY", "forex", 3),
-    Asset("EURJPY", "EUR/JPY", "forex", 3),
-    Asset("AUDCAD", "AUD/CAD", "forex", 5),
-    Asset("USDCHF", "USD/CHF", "forex", 5),
-    Asset("XAUUSD", "XAU/USD", "metal", 2),
-)
+
+def _pair(title: str, otc: bool) -> Asset:
+    code = title.replace("/", "")
+    digits = 3 if "JPY" in code else 5
+    if otc:
+        return Asset(code + "_otc", title + " OTC", "forex", digits)
+    return Asset(code, title, "forex", digits)
+
+
+# OTC-пари Pocket Option — працюють цілодобово, у вихідні теж.
+ASSETS: tuple[Asset, ...] = tuple(_pair(title, otc=True) for title in PAIRS)
+# Звичайні (не OTC) пари — реальний ринок, торгуються лише коли відкритий форекс.
+REGULAR: tuple[Asset, ...] = tuple(_pair(title, otc=False) for title in PAIRS)
 ALL_ASSETS: tuple[Asset, ...] = REGULAR + ASSETS
 
 ASSETS_BY_SYMBOL = {asset.symbol: asset for asset in ALL_ASSETS}
@@ -81,22 +79,21 @@ def forex_open(now: datetime | None = None) -> bool:
     return True
 
 
-def live_assets(now: datetime | None = None) -> list[Asset]:
-    """Що давати в сесії: у робочі години ринку — звичайні пари + OTC-крипта, інакше все OTC."""
-    if forex_open(now):
-        return list(REGULAR) + [asset for asset in ASSETS if asset.kind == "crypto"]
-    return list(ASSETS)
+def live_assets(now: datetime | None = None, bad: set[str] | frozenset[str] = frozenset()) -> list[Asset]:
+    """Що давати в сесії: у робочі години ринку — звичайні пари, інакше OTC.
+
+    `bad` — звичайні пари, які брокер не віддав: замість них беремо їхній OTC-двійник.
+    """
+    if not forex_open(now):
+        return list(ASSETS)
+    return [ASSETS_BY_SYMBOL[asset.symbol + "_otc"] if asset.symbol in bad else asset for asset in REGULAR]
+
 
 _BASE_PRICE = {
-    "EURUSD_otc": 1.0850,
-    "GBPUSD_otc": 1.2720,
-    "USDJPY_otc": 156.40,
-    "EURJPY_otc": 180.65,
-    "AUDCAD_otc": 0.9120,
-    "USDCHF_otc": 0.8890,
-    "BTCUSD_otc": 96300.0,
-    "ETHUSD_otc": 3120.0,
-    "XAUUSD_otc": 4295.0,
+    "EURUSD": 1.1700, "GBPUSD": 1.3450, "USDJPY": 148.0, "USDCHF": 0.7950, "USDCAD": 1.3900,
+    "AUDUSD": 0.6600, "EURGBP": 0.8700, "EURJPY": 173.0, "EURCHF": 0.9300, "EURCAD": 1.6250,
+    "EURAUD": 1.7700, "GBPAUD": 2.0350, "GBPJPY": 199.0, "GBPCAD": 1.8700, "GBPCHF": 1.0700,
+    "AUDCHF": 0.5250, "AUDCAD": 0.9150, "CADJPY": 106.5, "CADCHF": 0.5720, "CHFJPY": 186.0,
 }
 
 
@@ -128,7 +125,7 @@ class SimulatedSource:
 
     async def candles(self, symbol: str, timeframe: int, count: int = 120) -> list[Candle]:
         asset = ASSETS_BY_SYMBOL.get(symbol)
-        base = _BASE_PRICE.get(symbol, 1.0)
+        base = _BASE_PRICE.get(symbol.removesuffix("_otc"), 1.0)
         step = base * (0.00035 if asset and asset.kind == "forex" else 0.0018)
         now_ts = int(time.time() // timeframe * timeframe)
         drift_len = self._rng.randint(8, 22)

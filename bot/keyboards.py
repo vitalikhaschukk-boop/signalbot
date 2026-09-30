@@ -16,7 +16,9 @@ from core.i18n import LANGS
 # нижнє (постійне) меню: ключ тексту -> дія
 _BOTTOM = (("kb_home", "home"), ("btn_start_session", "session"), ("btn_99", "99"), ("btn_subs", "subs"))
 BOTTOM_ACTIONS = {t(lang, key): action for lang in LANGS for key, action in _BOTTOM}
-BOTTOM_ACTIONS["🔥 99 Signal"] = "99"  # стара назва: у юзерів, що ще не тиснули /start, кнопка лишилась
+# старі назви: у юзерів, що ще не тиснули /start, кнопка лишилась
+BOTTOM_ACTIONS["🔥 99 Signal"] = "99"
+BOTTOM_ACTIONS["🔥 TOP Signal"] = "99"
 
 TIMEFRAMES: tuple[tuple[int, str], tuple[int, str], tuple[int, str], tuple[int, str]] = (
     (60, "tf_1"),

@@ -15,10 +15,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "profile_title": "👤 <b>Профіль користувача</b>",
         "profile_id": "🆔 ID: <code>{user_id}</code>",
         "profile_nick": "👤 Нік: {nick}",
-        "sub_active": "💎 Підписка: <b>Активна</b>",
-        "sub_inactive": "💎 Підписка: <b>Неактивна</b>",
+        "sub_active": "💎 Підписка: <b>VIP</b>",
+        "sub_inactive": "💎 Підписка: <b>🆓 Безкоштовна</b>",
         "sub_until": "📅 Діє до: <b>{until}</b> UTC",
-        "sub_required": "🚫 Для запуску торгових сесій потрібна активна підписка.",
         "sessions_today": "🎯 Сесій сьогодні: <b>{used}/{limit}</b>",
         "ai_pitch": "📈 AI аналізує ринок у режимі реального часу та шукає найкращі точки входу для торгівлі.",
         "choose_action": "👇 Оберіть дію нижче.",
@@ -28,31 +27,32 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_subs": "💎 Підписки",
         "btn_lang": "🌐 Мова",
         "btn_training": "🎓 Навчання",
-        "btn_99": "🔥 TOP Signal",
+        "btn_99": "💎 ELITE SIGNAL",
         "btn_start_session": "🚀 Почати сесію",
         "kb_home": "🏠 Головне меню",
         "kb_ready": "⌨️ Меню закріплено внизу.",
         "cmd_start": "🏠 Головне меню",
         "btn_back": "⬅️ Назад",
-        "s99_title": "🔥 <b>TOP SIGNAL</b>",
+        "elite_vip_only": "💎 ELITE SIGNAL доступний лише у VIP.\n\nЩоб оформити VIP — напиши особистому трейдеру.",
+        "s99_title": "💎 <b>ELITE SIGNAL</b>",
         "s99_intro": (
             "Один найсильніший сигнал на добу — бот бере його лише тоді, "
             "коли всі правила збігаються одночасно."
         ),
-        "s99_used": "🔥 TOP Signal на сьогодні вже забрано. Наступний — завтра.",
+        "s99_used": "💎 ELITE SIGNAL на сьогодні вже забрано. Наступний — завтра.",
         "s99_none": (
             "🔍 Зараз ринок не дає сигналу такої сили. Спробуй пізніше — "
             "спроба не витрачена."
         ),
-        "s99_badge": "🔥 <b>TOP SIGNAL</b> — найсильніший збіг за добу",
+        "s99_badge": "💎 <b>ELITE SIGNAL</b> — найсильніший збіг за добу",
         "lang_title": "🌐 <b>Оберіть мову</b>",
         "lang_saved": "✅ Мову змінено на українську.",
         "subs_title": "💎 <b>Підписки</b>",
         "subs_body": (
-            "Доступ до сигналів видається за підпискою.\n\n"
+            "Сигнали доступні всім — скільки на добу, залежить від підписки.\n\n"
             "<b>{plan1}</b>\n{plan1_desc}\n\n"
             "<b>{plan2}</b>\n{plan2_desc}\n\n"
-            "Щоб оформити — напиши особистому трейдеру."
+            "Щоб оформити VIP — напиши особистому трейдеру."
         ),
         "tf_title": "⏰ <b>Оберіть таймфрейм</b>",
         "tf_body": "Оберіть інтервал графіка для AI-аналізу.",
@@ -98,7 +98,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_denied": "🚫 Ця команда не для тебе.",
         "admin_title": "🛠 <b>Адмін-панель</b>",
         "admin_stats": (
-            "🔥 У черзі TOP Signal: <b>{queue}</b>\n"
+            "💎 У черзі ELITE SIGNAL: <b>{queue}</b>\n"
             "👥 Користувачів: <b>{users}</b> (за добу +{new_24h})\n"
             "💎 З активною підпискою: <b>{active_subs}</b>\n"
             "📨 Запитів усього: <b>{requests}</b> (за добу {requests_24h})\n"
@@ -170,16 +170,16 @@ TEXTS: dict[str, dict[str, str]] = {
             "socket.io → Messages → <code>42[\"auth\",...]</code> → Copy message → /admin → 🔑."
         ),
         "admin_sub_none": "немає",
-        "s99_accepted": "🔥 <b>TOP SIGNAL</b>\n\n{sep}\n\n✅ <b>Запит прийнято!</b>\n\n🔬 Почався глибокий аналіз ринку: перебираємо активи й таймфрейми, щоб знайти найсильнішу точку входу дня.\n\n⏳ Сигнал прийде сюди протягом <b>1–5 годин</b>.\n🔔 Не вимикай сповіщення: сигнал прийде сюди, щойно аналіз завершиться.\n\n{sep}\n\n🧾 Запит <b>№{request_id}</b> · {time} UTC",
+        "s99_accepted": "💎 <b>ELITE SIGNAL</b>\n\n{sep}\n\n✅ <b>Запит прийнято!</b>\n\n🔬 Почався глибокий аналіз ринку: перебираємо активи й таймфрейми, щоб знайти найсильнішу точку входу дня.\n\n⏳ Сигнал прийде сюди протягом <b>1–5 годин</b>.\n🔔 Не вимикай сповіщення: сигнал прийде сюди, щойно аналіз завершиться.\n\n{sep}\n\n🧾 Запит <b>№{request_id}</b> · {time} UTC",
         "s99_waiting": "⏳ <b>Твій запит №{request_id} уже в роботі.</b>\n\nГлибокий аналіз ще триває — сигнал прийде протягом 1–5 годин з моменту запиту ({time} UTC).",
-        "s99_manual_badge": "🔥 <b>TOP SIGNAL</b> — результат глибокого аналізу",
+        "s99_manual_badge": "💎 <b>ELITE SIGNAL</b> — результат глибокого аналізу",
         "s99_comment": "💬 <b>Причина входу:</b>",
         "s99_act_now": "⚡ Відкривай угоду одразу: сигнал актуальний кілька хвилин.",
-        "s99_rejected": "😔 Сьогодні ринок не дав входу достатньої якості.\n\nСпробу повернуто — натисни 🔥 TOP Signal ще раз, коли зручно.",
-        "admin_btn_queue": "🔥 Черга TOP Signal ({n})",
-        "admin_queue_title": "🔥 <b>Черга TOP Signal</b> — {n} чекають",
-        "admin_queue_empty": "🔥 Черга TOP Signal порожня.",
-        "admin_new_99": "🔔 <b>Новий запит TOP Signal</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запит №{request_id}\n📋 У черзі всього: <b>{n}</b>\n\nЮзеру обіцяно сигнал протягом 1–5 годин.",
+        "s99_rejected": "😔 Сьогодні ринок не дав входу достатньої якості.\n\nСпробу повернуто — натисни 💎 ELITE SIGNAL ще раз, коли зручно.",
+        "admin_btn_queue": "💎 Черга ELITE SIGNAL ({n})",
+        "admin_queue_title": "💎 <b>Черга ELITE SIGNAL</b> — {n} чекають",
+        "admin_queue_empty": "💎 Черга ELITE SIGNAL порожня.",
+        "admin_new_99": "🔔 <b>Новий запит ELITE SIGNAL</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запит №{request_id}\n📋 У черзі всього: <b>{n}</b>\n\nЮзеру обіцяно сигнал протягом 1–5 годин.",
         "admin_btn_issue": "✍️ Видати сигнал",
         "admin_99_card": "🔥 <b>Запит №{request_id}</b>\n\n👤 {name} · <code>{user_id}</code>\n⏳ Чекає: <b>{waited}</b>\n\n{step}",
         "admin_99_step_asset": "1️⃣ Обери актив:",
@@ -201,10 +201,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "profile_title": "👤 <b>Профиль пользователя</b>",
         "profile_id": "🆔 ID: <code>{user_id}</code>",
         "profile_nick": "👤 Ник: {nick}",
-        "sub_active": "💎 Подписка: <b>Активна</b>",
-        "sub_inactive": "💎 Подписка: <b>Неактивна</b>",
+        "sub_active": "💎 Подписка: <b>VIP</b>",
+        "sub_inactive": "💎 Подписка: <b>🆓 Бесплатная</b>",
         "sub_until": "📅 Действует до: <b>{until}</b> UTC",
-        "sub_required": "🚫 Для запуска торговых сессий нужна активная подписка.",
         "sessions_today": "🎯 Сессий сегодня: <b>{used}/{limit}</b>",
         "ai_pitch": "📈 AI анализирует рынок в реальном времени и ищет лучшие точки входа для торговли.",
         "choose_action": "👇 Выберите действие ниже.",
@@ -214,31 +213,32 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_subs": "💎 Подписки",
         "btn_lang": "🌐 Язык",
         "btn_training": "🎓 Обучение",
-        "btn_99": "🔥 TOP Signal",
+        "btn_99": "💎 ELITE SIGNAL",
         "btn_start_session": "🚀 Начать сессию",
         "kb_home": "🏠 Главное меню",
         "kb_ready": "⌨️ Меню закреплено внизу.",
         "cmd_start": "🏠 Главное меню",
         "btn_back": "⬅️ Назад",
-        "s99_title": "🔥 <b>TOP SIGNAL</b>",
+        "elite_vip_only": "💎 ELITE SIGNAL доступен только в VIP.\n\nЧтобы оформить VIP — напиши личному трейдеру.",
+        "s99_title": "💎 <b>ELITE SIGNAL</b>",
         "s99_intro": (
             "Один самый сильный сигнал в сутки — бот берёт его только тогда, "
             "когда все правила совпадают одновременно."
         ),
-        "s99_used": "🔥 TOP Signal на сегодня уже забран. Следующий — завтра.",
+        "s99_used": "💎 ELITE SIGNAL на сегодня уже забран. Следующий — завтра.",
         "s99_none": (
             "🔍 Сейчас рынок не даёт сигнала такой силы. Попробуй позже — "
             "попытка не потрачена."
         ),
-        "s99_badge": "🔥 <b>TOP SIGNAL</b> — самое сильное совпадение за сутки",
+        "s99_badge": "💎 <b>ELITE SIGNAL</b> — самое сильное совпадение за сутки",
         "lang_title": "🌐 <b>Выберите язык</b>",
         "lang_saved": "✅ Язык изменён на русский.",
         "subs_title": "💎 <b>Подписки</b>",
         "subs_body": (
-            "Доступ к сигналам выдаётся по подписке.\n\n"
+            "Сигналы доступны всем — сколько в сутки, зависит от подписки.\n\n"
             "<b>{plan1}</b>\n{plan1_desc}\n\n"
             "<b>{plan2}</b>\n{plan2_desc}\n\n"
-            "Чтобы оформить — напиши личному трейдеру."
+            "Чтобы оформить VIP — напиши личному трейдеру."
         ),
         "tf_title": "⏰ <b>Выберите таймфрейм</b>",
         "tf_body": "Выберите интервал графика для AI-анализа.",
@@ -284,7 +284,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "admin_denied": "🚫 Эта команда не для тебя.",
         "admin_title": "🛠 <b>Админ-панель</b>",
         "admin_stats": (
-            "🔥 В очереди TOP Signal: <b>{queue}</b>\n"
+            "💎 В очереди ELITE SIGNAL: <b>{queue}</b>\n"
             "👥 Пользователей: <b>{users}</b> (за сутки +{new_24h})\n"
             "💎 С активной подпиской: <b>{active_subs}</b>\n"
             "📨 Запросов всего: <b>{requests}</b> (за сутки {requests_24h})\n"
@@ -356,16 +356,16 @@ TEXTS: dict[str, dict[str, str]] = {
             "socket.io → Messages → <code>42[\"auth\",...]</code> → Copy message → /admin → 🔑."
         ),
         "admin_sub_none": "нет",
-        "s99_accepted": "🔥 <b>TOP SIGNAL</b>\n\n{sep}\n\n✅ <b>Запрос принят!</b>\n\n🔬 Начался глубокий анализ рынка: перебираем активы и таймфреймы, чтобы найти самую сильную точку входа дня.\n\n⏳ Сигнал придёт сюда в течение <b>1–5 часов</b>.\n🔔 Не отключай уведомления: сигнал придёт сюда, как только анализ завершится.\n\n{sep}\n\n🧾 Запрос <b>№{request_id}</b> · {time} UTC",
+        "s99_accepted": "💎 <b>ELITE SIGNAL</b>\n\n{sep}\n\n✅ <b>Запрос принят!</b>\n\n🔬 Начался глубокий анализ рынка: перебираем активы и таймфреймы, чтобы найти самую сильную точку входа дня.\n\n⏳ Сигнал придёт сюда в течение <b>1–5 часов</b>.\n🔔 Не отключай уведомления: сигнал придёт сюда, как только анализ завершится.\n\n{sep}\n\n🧾 Запрос <b>№{request_id}</b> · {time} UTC",
         "s99_waiting": "⏳ <b>Твой запрос №{request_id} уже в работе.</b>\n\nГлубокий анализ ещё идёт — сигнал придёт в течение 1–5 часов с момента запроса ({time} UTC).",
-        "s99_manual_badge": "🔥 <b>TOP SIGNAL</b> — результат глубокого анализа",
+        "s99_manual_badge": "💎 <b>ELITE SIGNAL</b> — результат глубокого анализа",
         "s99_comment": "💬 <b>Причина входа:</b>",
         "s99_act_now": "⚡ Открывай сделку сразу: сигнал актуален несколько минут.",
-        "s99_rejected": "😔 Сегодня рынок не дал входа достаточного качества.\n\nПопытка возвращена — нажми 🔥 TOP Signal ещё раз, когда удобно.",
-        "admin_btn_queue": "🔥 Очередь TOP Signal ({n})",
-        "admin_queue_title": "🔥 <b>Очередь TOP Signal</b> — ждут {n}",
-        "admin_queue_empty": "🔥 Очередь TOP Signal пуста.",
-        "admin_new_99": "🔔 <b>Новый запрос TOP Signal</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запрос №{request_id}\n📋 В очереди всего: <b>{n}</b>\n\nЮзеру обещан сигнал в течение 1–5 часов.",
+        "s99_rejected": "😔 Сегодня рынок не дал входа достаточного качества.\n\nПопытка возвращена — нажми 💎 ELITE SIGNAL ещё раз, когда удобно.",
+        "admin_btn_queue": "💎 Очередь ELITE SIGNAL ({n})",
+        "admin_queue_title": "💎 <b>Очередь ELITE SIGNAL</b> — ждут {n}",
+        "admin_queue_empty": "💎 Очередь ELITE SIGNAL пуста.",
+        "admin_new_99": "🔔 <b>Новый запрос ELITE SIGNAL</b>\n\n👤 {name} · <code>{user_id}</code>\n💎 {sub}\n🧾 Запрос №{request_id}\n📋 В очереди всего: <b>{n}</b>\n\nЮзеру обещан сигнал в течение 1–5 часов.",
         "admin_btn_issue": "✍️ Выдать сигнал",
         "admin_99_card": "🔥 <b>Запрос №{request_id}</b>\n\n👤 {name} · <code>{user_id}</code>\n⏳ Ждёт: <b>{waited}</b>\n\n{step}",
         "admin_99_step_asset": "1️⃣ Выбери актив:",

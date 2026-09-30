@@ -230,12 +230,13 @@ def test_admin_card() -> None:
         db.upsert_user(1, "boss", "Boss")
         db.upsert_user(2, None, "Вася <3 & co")
         db.set_lang(2, "ru")
-        admin.app = SimpleNamespace(config=SimpleNamespace(admin_ids={1}, daily_sessions=3), db=db)
+        admin.app = SimpleNamespace(config=SimpleNamespace(admin_ids={1}, free_signals=5, vip_signals=10), db=db)
         for lang in LANGS:
             text, markup = admin._user_card(lang, 2)
             grants = [b.callback_data for row in markup.inline_keyboard for b in row
                       if (b.callback_data or "").startswith("adm:grant:2:")]
-            check(f"картка юзера відкривається ({lang})", "ru" in text and len(grants) == 3)
+            # норма змінилась 2026-09-30: Standard/Trial скасовано юзером, видається лише VIP
+            check(f"картка юзера відкривається ({lang})", "ru" in text and len(grants) == 1)
             check(f"HTML з імені екранується ({lang})", "&lt;3 &amp; co" in text, text)
         admin.app = None
         db.close()
@@ -301,7 +302,190 @@ def test_pocket_parsing() -> None:
         check("порожній SSID падає", True)
 
 
+USER_PAIRS = ("EUR/GBP", "EUR/JPY", "GBP/AUD", "GBP/JPY", "AUD/CHF", "EUR/CHF", "GBP/CAD", "GBP/CHF",
+              "USD/CAD", "USD/JPY", "EUR/USD", "CHF/JPY", "AUD/CAD", "CAD/JPY", "AUD/USD", "USD/CHF",
+              "CAD/CHF", "GBP/USD", "EUR/CAD", "EUR/AUD")
+
+
+def test_pairs() -> None:
+    """Т1–Т3: рівно 20 пар друга, як на Pocket Option; мовчазна звичайна → її OTC."""
+    print("\n[20 пар]")
+    from datetime import datetime, timezone
+
+    from data.market import ALL_ASSETS, ASSETS, ASSETS_BY_SYMBOL, REGULAR, live_assets
+
+    check("Т1 звичайних рівно 20 пар друга", sorted(a.name for a in REGULAR) == sorted(USER_PAIRS),
+          str(sorted(a.name for a in REGULAR)))
+    check("Т1 OTC рівно 20 пар друга", sorted(a.name for a in ASSETS) == sorted(USER_PAIRS))
+    check("Т1 у кожної звичайної є OTC-двійник",
+          all(a.symbol + "_otc" in ASSETS_BY_SYMBOL for a in REGULAR))
+    check("Т1 нема крипти й золота", all(a.kind == "forex" for a in ALL_ASSETS)
+          and not any(x in a.symbol for a in ALL_ASSETS for x in ("BTC", "ETH", "XAU")))
+    check("Т1 JPY — 3 знаки, решта 5",
+          all(a.digits == (3 if "JPY" in a.symbol else 5) for a in ALL_ASSETS))
+
+    tuesday = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
+    saturday = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+    open_ = live_assets(tuesday)
+    closed = live_assets(saturday)
+    check("Т2 ринок відкритий → 20 звичайних", len(open_) == 20 and not any(a.symbol.endswith("_otc") for a in open_))
+    check("Т2 ринок закритий → 20 OTC", len(closed) == 20 and all(a.symbol.endswith("_otc") for a in closed))
+    swapped = [a.symbol for a in live_assets(tuesday, bad={"EURGBP"})]
+    check("Т3 мовчазна EURGBP → EURGBP_otc", "EURGBP_otc" in swapped and "EURGBP" not in swapped
+          and len(swapped) == 20, str(swapped))
+
+
+def test_limits() -> None:
+    """Т4–Т6, Т9: Безкоштовна 5, VIP 10, Standard/Trial → безкоштовна, доба з 00:00 Києва."""
+    print("\n[ліміти]")
+    from datetime import datetime, timezone
+
+    from core.db import day_key
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "l.db")
+        free = db.upsert_user(1, "free", "Free")
+        check("Т4 безкоштовний має ліміт 5", free.daily_limit(5, 10) == 5)
+        ok = [db.consume_session(1, 5) for _ in range(6)]
+        check("Т4 5 проходять, 6-й ні", ok == [True] * 5 + [False], str(ok))
+        check("Т4 профіль 5/5", db.get_user(1).sessions_used(5) == 5)
+
+        db.upsert_user(2, "vip", "Vip")
+        db.grant_sub(2, "VIP", 30, admin_id=1)
+        vip = db.get_user(2)
+        check("Т5 VIP має ліміт 10", vip.is_vip and vip.daily_limit(5, 10) == 10)
+        ok = [db.consume_session(2, 10) for _ in range(11)]
+        check("Т5 10 проходять, 11-й ні", ok == [True] * 10 + [False], str(ok))
+        db.driver.execute("UPDATE users SET sub_until = ? WHERE user_id = 2", ("2020-01-01T00:00:00+00:00",))
+        check("Т5 VIP закінчився → знову 5", db.get_user(2).daily_limit(5, 10) == 5)
+        db.close()
+
+        # Т6: база зі старими Standard/Trial
+        path = Path(tmp) / "old.db"
+        db = Database(path)
+        for uid, plan in ((10, "Standard"), (11, "Trial"), (12, "VIP")):
+            db.upsert_user(uid, None, None)
+            db.grant_sub(uid, plan, 30, admin_id=1)
+        db.close()
+        db = Database(path)
+        check("Т6 Standard → безкоштовна", not db.get_user(10).sub_active and db.get_user(10).daily_limit(5, 10) == 5)
+        check("Т6 Trial → безкоштовна", not db.get_user(11).sub_active)
+        check("Т6 VIP не змінився", db.get_user(12).is_vip)
+        revokes = db.driver.query("SELECT user_id FROM sub_log WHERE action = 'revoke' ORDER BY user_id")
+        check("Т6 перевід записано в журнал", [r["user_id"] for r in revokes] == [10, 11], str(revokes))
+        db.close()
+
+    utc = timezone.utc
+    check("Т9 30.09 23:30 UTC = 01.10 за Києвом", day_key(datetime(2026, 9, 30, 23, 30, tzinfo=utc)) == "2026-10-01")
+    check("Т9 30.09 20:59 UTC = ще 30.09 (літо, +3)", day_key(datetime(2026, 9, 30, 20, 59, tzinfo=utc)) == "2026-09-30")
+    check("Т9 30.09 21:00 UTC = вже 01.10 (літо, +3)", day_key(datetime(2026, 9, 30, 21, 0, tzinfo=utc)) == "2026-10-01")
+    check("Т9 взимку +2: 15.12 21:30 UTC = 15.12", day_key(datetime(2026, 12, 15, 21, 30, tzinfo=utc)) == "2026-12-15")
+    check("Т9 взимку +2: 15.12 22:00 UTC = 16.12", day_key(datetime(2026, 12, 15, 22, 0, tzinfo=utc)) == "2026-12-16")
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "d.db")
+        db.upsert_user(1, None, None)
+        for _ in range(5):
+            db.consume_session(1, 5)
+        db.driver.execute("UPDATE users SET session_day = ? WHERE user_id = 1", ("2026-09-30",))
+        check("Т9 нова доба за Києвом → ліміт повний",
+              db.get_user(1).sessions_left(5, datetime(2026, 9, 30, 21, 30, tzinfo=utc)) == 5)
+        check("Т9 та сама доба → 0",
+              db.get_user(1).sessions_left(5, datetime(2026, 9, 30, 20, 30, tzinfo=utc)) == 0)
+        db.close()
+
+
+def test_elite() -> None:
+    """Т7, Т8, Т11, Т12: ELITE тільки VIP, назви, тексти тарифів, адмінка."""
+    print("\n[ELITE]")
+    from types import SimpleNamespace
+
+    from bot import admin, keyboards
+    from bot import main as bot_main
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "e.db")
+        db.upsert_user(1, "free", "Free")
+        db.upsert_user(2, "vip", "Vip")
+        db.grant_sub(2, "VIP", 30, admin_id=1)
+        bot_main.app = SimpleNamespace(db=db, config=SimpleNamespace(free_signals=5, vip_signals=10))
+        for lang in LANGS:
+            db.set_lang(1, lang)
+            answer = bot_main._request_99_screen(db.get_user(1))
+            check(f"Т7 безкоштовний → відмова з VIP ({lang})", isinstance(answer, str) and "VIP" in answer
+                  and "ELITE" in answer, str(answer))
+        check("Т7 у черзі безкоштовного нема", db.pending_99(1) is None)
+        answer = bot_main._request_99_screen(db.get_user(2))
+        check("Т7 VIP → запит у черзі", not isinstance(answer, str) and db.pending_99(2) is not None)
+        check("Т4/Т5 ліміт за юзером", bot_main.daily_limit(db.get_user(1)) == 5
+              and bot_main.daily_limit(db.get_user(2)) == 10)
+
+        # Т11 тексти тарифів: перший старт перезаписує, далі правка адміна живе
+        db.set_setting("plan1", "Standard — 3 сигнали/день")
+        bot_main.ensure_plan_texts(db)
+        check("Т11 нові тексти після старту", "5" in db.get_setting("plan1") and "10" in db.get_setting("plan2")
+              and "ELITE" in db.get_setting("plan2_desc"), db.get_setting("plan1"))
+        db.set_setting("plan1", "Мій текст")
+        bot_main.ensure_plan_texts(db)
+        check("Т11 правка адміна переживає рестарт", db.get_setting("plan1") == "Мій текст")
+        bot_main.app = None
+
+        check("Т12 адмінка видає лише VIP", [p for p, _ in admin.PLANS] == ["VIP"])
+        db.close()
+
+    for lang in LANGS:
+        joined = "\n".join(str(v) for v in TEXTS[lang].values())
+        check(f"Т8 нема «TOP Signal» ({lang})", "TOP" not in joined)
+        check(f"Т8 кнопка «💎 ELITE SIGNAL» ({lang})", t(lang, "btn_99") == "💎 ELITE SIGNAL")
+    for old in ("🔥 TOP Signal", "🔥 99 Signal", "💎 ELITE SIGNAL"):
+        check(f"Т8 нижнє меню: «{old}» веде на ELITE", keyboards.BOTTOM_ACTIONS.get(old) == "99")
+
+
+def test_scan_speed() -> None:
+    """Т10: 20 пар скануються паралельно; пара, що висить, не тримає довше бюджету."""
+    print("\n[скан]")
+    import time as _time
+    from types import SimpleNamespace
+
+    from bot import main as bot_main
+    from data.market import REGULAR
+
+    class Slow:
+        def __init__(self, hang: str | None = None) -> None:
+            self.hang = hang
+
+        async def assets(self):
+            return list(REGULAR)
+
+        async def candles(self, symbol, timeframe, count=120):
+            await asyncio.sleep(100 if symbol == self.hang else 1)
+            return trend_candles(1, 60)
+
+    budget = bot_main.SCAN_BUDGET
+    try:
+        bot_main.app = SimpleNamespace(demo_data=False, source=Slow())
+        start = _time.monotonic()
+        market, _digits = asyncio.run(bot_main._load_market(60))
+        spent = _time.monotonic() - start
+        check("Т10 20 пар по 1с → < 5с", spent < 5 and len(market) == 20, f"{spent:.1f}с, {len(market)} пар")
+
+        bot_main.SCAN_BUDGET = 2.0
+        bot_main.app = SimpleNamespace(demo_data=False, source=Slow(hang="EURUSD"))
+        start = _time.monotonic()
+        market, _digits = asyncio.run(bot_main._load_market(60))
+        spent = _time.monotonic() - start
+        check("Т10 пара, що висить, не тримає довше бюджету", spent < 3.5 and len(market) == 19
+              and "EURUSD" not in market, f"{spent:.1f}с, {len(market)} пар")
+    finally:
+        bot_main.SCAN_BUDGET = budget
+        bot_main.app = None
+
+
 if __name__ == "__main__":
+    for new_test in (test_pairs, test_limits, test_elite, test_scan_speed):
+        try:
+            new_test()
+        except Exception as exc:  # noqa: BLE001 — до коду нові тести падають цілком, решта має йти
+            check(f"{new_test.__name__} виконався", False, repr(exc))
     test_db()
     test_99_and_migration()
     test_signals()

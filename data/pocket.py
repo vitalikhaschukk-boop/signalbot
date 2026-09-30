@@ -126,6 +126,8 @@ class PocketSource:
         self._cache: dict[tuple[str, int], tuple[float, list[Candle]]] = {}
         self._waiters: dict[str, asyncio.Future] = {}
         self._bad: set[str] = set()
+        self._symbol_locks: dict[str, asyncio.Lock] = {}
+        self._last_answer = 0.0  # time.monotonic() останньої відповіді з історією
 
     # ---------------------------------------------------------------- connect
     async def _connect(self) -> None:
@@ -229,6 +231,7 @@ class PocketSource:
                 body = json.loads(payload)  # type: ignore[arg-type]
         except (ValueError, IndexError, TypeError, AttributeError):
             return
+        self._last_answer = time.monotonic()
         waiter = self._waiters.pop(str(body.get("asset")), None)
         if waiter is not None and not waiter.done():
             waiter.set_result(body)
@@ -256,24 +259,28 @@ class PocketSource:
     # ------------------------------------------------------------------ data
     async def assets(self) -> list[Asset]:
         # Список тримаємо свій: у години ринку — звичайні пари, інакше OTC.
-        # Актив, який брокер не віддав (напр. назва не та), до рестарту не пропонуємо.
-        return [asset for asset in live_assets() if asset.symbol not in self._bad]
+        # Звичайна пара, яку брокер не віддав, до рестарту підміняється своїм OTC-двійником.
+        return live_assets(bad=self._bad)
 
     async def candles(self, symbol: str, timeframe: int, count: int = 120) -> list[Candle]:
         cached = self._cache.get((symbol, timeframe))
         if cached and time.time() - cached[0] < self.cache_ttl:
             return cached[1]
 
-        async with self._lock:
+        # відповідь брокера несе лише назву активу, тож на один актив — один запит за раз;
+        # різні активи йдуть паралельно по одному зʼєднанню
+        async with self._symbol_locks.setdefault(symbol, asyncio.Lock()):
             cached = self._cache.get((symbol, timeframe))
             if cached and time.time() - cached[0] < self.cache_ttl:
                 return cached[1]
 
-            if self._ws is None:
-                await self._connect()
+            async with self._lock:
+                if self._ws is None:
+                    await self._connect()
 
             waiter: asyncio.Future = asyncio.get_running_loop().create_future()
             self._waiters[symbol] = waiter
+            started = time.monotonic()
             request = {
                 "asset": symbol,
                 "index": int(time.time() * 1000),
@@ -285,20 +292,21 @@ class PocketSource:
                 await self._send("42" + json.dumps(["loadHistoryPeriod", request]))
                 body = await asyncio.wait_for(waiter, timeout=HISTORY_TIMEOUT)
             except asyncio.TimeoutError as exc:
-                self._waiters.pop(symbol, None)
                 if not symbol.endswith("_otc"):
-                    self._bad.add(symbol)  # звичайна пара без відповіді — далі беремо OTC
-                await self._teardown()
+                    self._bad.add(symbol)  # звичайна пара без відповіді — далі беремо її OTC
+                if self._last_answer < started:
+                    await self._teardown()  # за цей час брокер не відповів нікому — зʼєднання мертве
                 raise PocketUnavailable(
                     f"історія {symbol} не приїхала за {HISTORY_TIMEOUT:.0f}с{self._hint()}"
                 ) from exc
             except PocketUnavailable:
-                self._waiters.pop(symbol, None)
                 raise
             except Exception as exc:  # noqa: BLE001
-                self._waiters.pop(symbol, None)
                 await self._teardown()
                 raise PocketUnavailable(f"помилка Pocket Option: {exc}") from exc
+            finally:
+                if self._waiters.get(symbol) is waiter:
+                    del self._waiters[symbol]
 
             candles = _to_candles(body)
             if not candles:

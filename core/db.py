@@ -128,6 +128,25 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
+def _last_sunday(year: int, month: int) -> date:
+    day = date(year, month, 31)
+    return day - timedelta(days=(day.weekday() + 1) % 7)
+
+
+def kyiv_offset(moment: datetime) -> timedelta:
+    """Київ: UTC+3 з останньої неділі березня до останньої неділі жовтня (перехід о 01:00 UTC), інакше UTC+2."""
+    moment = moment.astimezone(UTC)
+    summer_from = datetime.combine(_last_sunday(moment.year, 3), datetime.min.time(), UTC) + timedelta(hours=1)
+    summer_to = datetime.combine(_last_sunday(moment.year, 10), datetime.min.time(), UTC) + timedelta(hours=1)
+    return timedelta(hours=3 if summer_from <= moment < summer_to else 2)
+
+
+def day_key(moment: datetime | None = None) -> str:
+    """Поточна доба за Києвом (YYYY-MM-DD): ліміти сигналів і ELITE обнуляються о 00:00 Києва."""
+    moment = moment or now()
+    return (moment.astimezone(UTC) + kyiv_offset(moment)).date().isoformat()
+
+
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds")
 
@@ -237,14 +256,22 @@ class User:
 
     @property
     def has_99_today(self) -> bool:
-        return self.last_99_day == date.today().isoformat()
+        return self.last_99_day == day_key()
 
     @property
     def sub_active(self) -> bool:
         return self.sub_until is not None and self.sub_until > now()
 
-    def sessions_left(self, daily_limit: int) -> int:
-        if self.session_day != date.today().isoformat():
+    @property
+    def is_vip(self) -> bool:
+        return self.sub_active and self.sub_plan == "VIP"
+
+    def daily_limit(self, free: int, vip: int) -> int:
+        """Сигналів на добу: VIP — `vip`, усі інші — безкоштовна `free`."""
+        return vip if self.is_vip else free
+
+    def sessions_left(self, daily_limit: int, moment: datetime | None = None) -> int:
+        if self.session_day != day_key(moment):
             return daily_limit
         return max(0, daily_limit - self.sessions_today)
 
@@ -256,6 +283,13 @@ class Database:
     def __init__(self, target: Path | str) -> None:
         text = str(target)
         self.driver = _PostgresDriver(text) if is_postgres_dsn(text) else _SqliteDriver(Path(text))
+        self._retire_old_plans()
+
+    def _retire_old_plans(self) -> None:
+        """Підписок лишилось дві (Безкоштовна і VIP): Standard і Trial стають безкоштовною."""
+        rows = self.driver.query("SELECT user_id FROM users WHERE sub_plan IN ('Standard', 'Trial')")
+        for row in rows:
+            self.revoke_sub(row["user_id"], admin_id=0)
 
     @property
     def engine(self) -> str:
@@ -310,7 +344,7 @@ class Database:
     # ---------------- сесії / запити ----------------
     def consume_session(self, user_id: int, daily_limit: int) -> bool:
         """Списати одну сесію. False — денний ліміт вичерпано."""
-        today = date.today().isoformat()
+        today = day_key()
         rows = self.driver.query(
             "SELECT sessions_today, session_day FROM users WHERE user_id = ?", (user_id,)
         )
@@ -328,8 +362,8 @@ class Database:
         return True
 
     def consume_99(self, user_id: int) -> bool:
-        """Списати денний «99 Signal». False — сьогодні вже брав."""
-        today = date.today().isoformat()
+        """Списати денний ELITE SIGNAL. False — сьогодні вже брав."""
+        today = day_key()
         rows = self.driver.query("SELECT last_99_day FROM users WHERE user_id = ?", (user_id,))
         if not rows or rows[0]["last_99_day"] == today:
             return False

@@ -50,13 +50,32 @@ PO_REFRESH_EVERY = timedelta(hours=6)
 SCAN_BUDGET = 20.0
 # якщо жоден актив не дотягнув до повного порогу 3.0 — беремо найкращий від цього балу (якість у % буде нижчою)
 FALLBACK_SCORE = 2.2
+# скільки пар питати в брокера одночасно: усі 20 разом, щоб одна зависла не з'їдала бюджет інших
+SCAN_PARALLEL = 20
 
 PLAN_DEFAULTS = {
-    "plan1": "Standard — 3 сигнали/день",
-    "plan1_desc": "• 3 сесії на добу\n• Forex + Crypto OTC\n• підтримка в чаті",
-    "plan2": "VIP — без обмежень",
-    "plan2_desc": "• необмежені сесії\n• пріоритетний підбір активів\n• особистий трейдер",
+    "plan1": "🆓 Безкоштовна — 5 сигналів на добу",
+    "plan1_desc": "• 5 сигналів на добу\n• 20 валютних пар Pocket Option",
+    "plan2": "💎 VIP — 10 сигналів на добу",
+    "plan2_desc": "• 10 сигналів на добу\n• 💎 ELITE SIGNAL щодня\n• 20 валютних пар Pocket Option",
 }
+# тексти тарифів одноразово перезаписуються при переході на дві підписки (Безкоштовна / VIP)
+PLAN_TEXTS_VERSION = "2"
+
+
+def ensure_plan_texts(db) -> None:
+    """Раз на версію тарифів кладе нові тексти; далі адмінські правки з /admin живуть."""
+    if db.get_setting("plan_texts_version") == PLAN_TEXTS_VERSION:
+        return
+    for key, value in PLAN_DEFAULTS.items():
+        db.set_setting(key, value)
+    db.set_setting("plan_texts_version", PLAN_TEXTS_VERSION)
+
+
+def daily_limit(user: User) -> int:
+    """Сигналів на добу для юзера: VIP — 10, безкоштовна — 5 (числа з конфіга)."""
+    assert app is not None
+    return user.daily_limit(app.config.free_signals, app.config.vip_signals)
 
 
 class App:
@@ -178,20 +197,13 @@ def profile_block(user: User, config: Config, lang: str) -> str:
         t(lang, "profile_nick", nick=nick),
         "",
     ]
-    if user.sub_active:
+    if user.is_vip:
         lines.append(t(lang, "sub_active"))
         lines.append(t(lang, "sub_until", until=user.sub_until.strftime("%d.%m.%Y %H:%M")))
     else:
         lines.append(t(lang, "sub_inactive"))
-        lines.append(t(lang, "sub_required"))
-    lines.append(
-        t(
-            lang,
-            "sessions_today",
-            used=user.sessions_used(config.daily_sessions),
-            limit=config.daily_sessions,
-        )
-    )
+    limit = user.daily_limit(config.free_signals, config.vip_signals)
+    lines.append(t(lang, "sessions_today", used=user.sessions_used(limit), limit=limit))
     lines += ["", "—" * 18, "", t(lang, "ai_pitch"), "", t(lang, "choose_action")]
     return "\n".join(lines)
 
@@ -321,10 +333,9 @@ def _session_screen(user: User):
     assert app is not None
     if user.banned:
         return t(user.lang, "banned")
-    if not user.sub_active:
-        return t(user.lang, "sub_required")
-    if user.sessions_left(app.config.daily_sessions) <= 0:
-        return t(user.lang, "no_sessions", limit=app.config.daily_sessions)
+    limit = daily_limit(user)
+    if user.sessions_left(limit) <= 0:
+        return t(user.lang, "no_sessions", limit=limit)
     return t(user.lang, "tf_title") + "\n\n" + t(user.lang, "tf_body"), timeframe_menu(user.lang)
 
 
@@ -333,8 +344,8 @@ async def cb_timeframe(call: CallbackQuery) -> None:
     assert app is not None and call.from_user is not None and call.data is not None
     user = app.user_or_create(call.from_user)
     timeframe = int(call.data.split(":", 1)[1])
-    if not user.sub_active or user.sessions_left(app.config.daily_sessions) <= 0:
-        await call.answer(t(user.lang, "sub_required"), show_alert=True)
+    if user.banned or user.sessions_left(daily_limit(user)) <= 0:
+        await call.answer(t(user.lang, "no_sessions", limit=daily_limit(user)), show_alert=True)
         return
     await _deliver_signal(call, user, timeframe=timeframe)
 
@@ -359,8 +370,8 @@ def _request_99_screen(user: User):
     assert app is not None
     if user.banned:
         return t(user.lang, "banned")
-    if not user.sub_active:
-        return t(user.lang, "sub_required")
+    if not user.is_vip:
+        return t(user.lang, "elite_vip_only")
     waiting = app.db.pending_99(user.user_id)
     if waiting:
         created = _parse_ts(waiting["created_at"])
@@ -413,9 +424,9 @@ async def _deliver_signal(call: CallbackQuery, user: User, *, timeframe: int) ->
         return
 
     symbol, signal = best
-    if not app.db.consume_session(user.user_id, app.config.daily_sessions):
+    if not app.db.consume_session(user.user_id, daily_limit(user)):
         await message.edit_text(
-            t(user.lang, "no_sessions", limit=app.config.daily_sessions), reply_markup=back_menu(user.lang)
+            t(user.lang, "no_sessions", limit=daily_limit(user)), reply_markup=back_menu(user.lang)
         )
         return
     app.db.log_request(user.user_id, symbol, timeframe, signal.direction)
@@ -468,8 +479,8 @@ def _signal_caption(user: User, asset_title: str, signal, timeframe: int) -> str
         t(
             lang,
             "signal_left",
-            left=user.sessions_left(app.config.daily_sessions),
-            limit=app.config.daily_sessions,
+            left=user.sessions_left(daily_limit(user)),
+            limit=daily_limit(user),
         ),
     ]
     return "\n".join(lines)
@@ -491,18 +502,26 @@ async def _load_market(timeframe: int, limit: int = 0):
         symbols = symbols[:limit]
     market = {}
     digits = {}
-    deadline = time.monotonic() + SCAN_BUDGET
-    for symbol in symbols:
-        if time.monotonic() > deadline:
-            break  # не тримаємо юзера на екрані сканера: беремо, що встигли
-        try:
-            candles = await app.source.candles(symbol, timeframe, count=120)
-        except PocketUnavailable as exc:
-            log.info("актив %s пропущено: %s", symbol, exc)
-            continue
+    gate = asyncio.Semaphore(SCAN_PARALLEL)
+
+    async def fetch(symbol: str) -> None:
+        async with gate:
+            try:
+                candles = await app.source.candles(symbol, timeframe, count=120)
+            except PocketUnavailable as exc:
+                log.info("актив %s пропущено: %s", symbol, exc)
+                return
         if len(candles) >= 40:
             market[symbol] = candles
             digits[symbol] = ASSETS_BY_SYMBOL[symbol].digits
+
+    tasks = [asyncio.create_task(fetch(symbol)) for symbol in symbols]
+    # не тримаємо юзера на екрані сканера довше бюджету: беремо, що встигли
+    _done, pending = await asyncio.wait(tasks, timeout=SCAN_BUDGET)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
     if not market:
         raise PocketUnavailable("жоден актив не віддав свічки")
     return market, digits
@@ -572,6 +591,7 @@ async def main() -> None:
         raise SystemExit("BOT_TOKEN не заданий — скопіюй .env.example у .env")
     app = App(config)
     admin_module.app = app
+    ensure_plan_texts(app.db)
 
     bot = Bot(config.token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     app.bot = bot
@@ -581,11 +601,12 @@ async def main() -> None:
     dispatcher.include_router(admin_module.router)
     dispatcher.include_router(router)
     log.info(
-        "старт: дані=%s, база=%s, адмінів=%d, ліміт сесій=%d",
+        "старт: дані=%s, база=%s, адмінів=%d, сигналів на добу: безкоштовна=%d, VIP=%d",
         app.source.name,
         app.db.engine,
         len(admin_module.admin_ids()),
-        config.daily_sessions,
+        config.free_signals,
+        config.vip_signals,
     )
     try:
         await dispatcher.start_polling(bot)
